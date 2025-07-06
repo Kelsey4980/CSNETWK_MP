@@ -2,46 +2,32 @@
 
 # import socket module
 from socket import *
+from utils import *
 import sys  # In order to terminate the program
 
-serverSocket = socket(AF_INET, SOCK_STREAM)
-# Prepare a sever socket
-# Fill in start
-serverSocket.bind(('', 6969))
-serverSocket.listen()
-# Fill in end
 
+BROADCAST_IP = '<broadcast>' # will be used for PING or PROFILE
+
+sock = socket(AF_INET, SOCK_DGRAM) # AF_INET means IPv4, SOCK_DGRAM means UDP
+sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
+
+PORT = 50999
+
+sock.bind(('', PORT)) # bind to port 50999
+
+print('LSNP is ready to serve...')
 
 while True:
-    # Establish the connection
-    print('CSNETWK Web Server is ready to serve...')
-    connSocket, addr = serverSocket.accept()  # Fill in start   #Fill in end
     try:
-        message = connSocket.recv(1024).decode()  # Fill in start #Fill in end
-        filename = message.split()[1]
-        f = open(filename[1:])
-        outputdata = f.read()  # Fill in start #Fill in end
-        # Send one HTTP header line into socket
-        # Fill in start
-        connSocket.send("HTTP/1.1 200 OK\r\n\r\n".encode())
-        # Fill in end
-        # Send the content of the requested file to the client
-        for i in range(0, len(outputdata)):
-            connSocket.send(outputdata[i].encode())
+        data, addr = sock.recvfrom(65535) # 65535 is max packet size for UDP
+        message = data.decode('utf-8', errors='ignore') # converts bytes to String
 
-        connSocket.send("\r\n".encode())
-        connSocket.close()
+        print(f"\n[RECV from {addr[0]}]:\n{message}") # sender IP and message
 
-    except IOError:
-        # Send response message for file not found
-        # Fill in start
-        connSocket.send("HTTP/1.1 404 Not Found\r\n\r\n".encode())
-        connSocket.send("<html><body><h1>404 Not Found</h1></body></html>\r\n".encode())
-        # Fill in end
+        extracted_msg_id = extract_message_id(message)
+        if extracted_msg_id:
+            ack = f"TYPE: ACK\nSTATUS: RECEIVED\nMESSAGE_ID: {extracted_msg_id}\n\n"
+            sock.sendto(ack.encode(), addr)
 
-        # Close client socket
-        # Fill in start
-        connSocket.close()
-        # Fill in end
-serverSocket.close()
-sys.exit()  # Terminate the program after sending the corresponding data
+    except Exception as e:
+        print("Error:", e)
