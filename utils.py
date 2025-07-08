@@ -24,3 +24,21 @@ def store_IP(ip_address):
         peers_IP[ip_address] = True
 
     print(f">> [LOG] Active IPs: {peers_IP}\n\n")
+
+def parse_profile_message(message):
+    lines = message.strip().split('\n')
+    msg_type = None
+    user_id = None
+    display_name = None
+
+    for line in lines:
+        if line.startswith("TYPE:"):
+            msg_type = line.split(":", 1)[1].strip()
+        elif line.startswith("USER_ID:"):
+            user_id = line.split(":", 1)[1].strip()
+        elif line.startswith("DISPLAY_NAME:"):
+            display_name = line.split(":", 1)[1].strip()
+
+    if msg_type == "PROFILE" and user_id and display_name:
+        return user_id, display_name
+    return None, None
