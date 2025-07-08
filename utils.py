@@ -25,6 +25,7 @@ def store_IP(ip_address):
 
     print(f">> [LOG] Active IPs: {peers_IP}\n\n")
 
+# ------ mDNS Discovery
 def parse_profile_message(message):
     lines = message.strip().split('\n')
     msg_type = None
@@ -42,3 +43,9 @@ def parse_profile_message(message):
     if msg_type == "PROFILE" and user_id and display_name:
         return user_id, display_name
     return None, None
+
+def print_known_peers(peer_profiles):
+    print("\n--- Known Peers ---")
+    for user_id, (name, ip) in peer_profiles.items():
+        print(f"{name} ({user_id}) @ {ip}")
+    print("-------------------\n")

@@ -6,6 +6,8 @@ from utils import *
 import sys  # In order to terminate the program
 from dictionary import peers_IP, peer_profiles
 import threading
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
 
 # ====== Set Up
 BROADCAST_IP = '<broadcast>' # will be used for PING or PROFILE
@@ -19,36 +21,45 @@ sock.bind(('', PORT)) # bind to port 50999
 # ====== Server Proper
 print('===== >> LSNP is active << =====\n')
 
-def print_known_peers():
+def server_loop():
     while True:
-        cmd = input("Type 'peers' to list known peers:\n> ")
-        if cmd.strip().lower() == "peers":
-            print("\n--- Known Peers ---")
-            for user_id, (name, ip) in peer_profiles.items():
-                print(f"{name} ({user_id}) @ {ip}")
-            print("-------------------\n")
+        try:
+            data, addr = sock.recvfrom(65535) # 65535 is max packet size for UDP
+            message = data.decode('utf-8', errors='ignore') # converts bytes to String
 
-threading.Thread(target=print_known_peers, daemon=True).start()
+            # IP Address Log
+            log_IP(addr[0], message)
+            store_IP(addr[0])
 
-while True:
-    try:
-        data, addr = sock.recvfrom(65535) # 65535 is max packet size for UDP
-        message = data.decode('utf-8', errors='ignore') # converts bytes to String
+            # handle PROFILE messages (mDNS-like behavior)
+            user_id, display_name = parse_profile_message(message)
+            if user_id and display_name:
+                peer_profiles[user_id] = (display_name, addr[0])
+                print(f">> [PROFILE] {display_name} ({user_id}) added/updated from IP {addr[0]}\n")
 
-        # IP Address Log
-        log_IP(addr[0], message)
-        store_IP(addr[0])
+            extracted_msg_id = extract_message_id(message)
+            if extracted_msg_id:
+                ack = f"TYPE: ACK\nSTATUS: RECEIVED\nMESSAGE_ID: {extracted_msg_id}\n\n"
+                sock.sendto(ack.encode(), addr)
 
-        # handle PROFILE messages (mDNS-like behavior)
-        user_id, display_name = parse_profile_message(message)
-        if user_id and display_name:
-            peer_profiles[user_id] = (display_name, addr[0])
-            print(f">> [PROFILE] {display_name} ({user_id}) added/updated from IP {addr[0]}\n")
+        except Exception as e:
+            print("Error:", e)
+            sys.exit(1)
 
-        extracted_msg_id = extract_message_id(message)
-        if extracted_msg_id:
-            ack = f"TYPE: ACK\nSTATUS: RECEIVED\nMESSAGE_ID: {extracted_msg_id}\n\n"
-            sock.sendto(ack.encode(), addr)
+# start the server in a thread
+threading.Thread(target=server_loop, daemon=True).start()
 
-    except Exception as e:
-        print("Error:", e)
+# main input loop with prompt_toolkit patch_stdout for safe async prints
+session = PromptSession()
+with patch_stdout():
+    while True:
+        try:
+            cmd = session.prompt("Type 'peers' to list known peers:\n> ")
+            if cmd.strip().lower() == 'peers':
+                print_known_peers(peer_profiles)
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
+        except EOFError:
+            print("\nExiting...")
+            break
