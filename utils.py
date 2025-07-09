@@ -74,6 +74,14 @@ def nvprint(message):
         print_profile(message)
     elif incoming_type == "POST":
         print_post(message)
+    elif incoming_type == "DM":
+        print_dm(message)
+    elif incoming_type == "FOLLOW":
+        print_follow(message)
+    elif incoming_type == "UNFOLLOW":
+        print_unfollow(message)
+    elif incoming_type == "FILE_OFFER":
+        print_file_offer(message)
 
 # ====== Individual printing for non-verbose
 def print_profile(message):
@@ -116,3 +124,63 @@ def print_post(message):
     print(f"\tFrom: {display_name}")
     print(f"\tContent: {content}")
     print("\n")
+
+def print_dm(message):
+    lines = message.strip().split('\n')
+    from_id = None
+    content = None
+
+    for line in lines:
+        if line.startswith("FROM:"):
+            from_id = line.split(":", 1)[1].strip()
+        elif line.startswith("CONTENT:"):
+            content = line.split(":", 1)[1].strip()
+
+    # Check if we know the sender's display name
+    if from_id in dictionary.peer_profiles:
+        display_name = dictionary.peer_profiles[from_id][0]
+    else:
+        display_name = from_id
+
+    print("[DM]")
+    print(f"\t{display_name}: {content}")
+    print("\n")
+
+def print_follow(message):
+    lines = message.strip().split('\n')
+    from_id = None
+
+    for line in lines:
+        if line.startswith("FROM:"):
+            from_id = line.split(":", 1)[1].strip()
+            break
+
+    if from_id:
+        print("[FOLLOW]")
+        print(f"\tUser {from_id} has followed you\n\n")
+
+def print_unfollow(message):
+    lines = message.strip().split('\n')
+    from_id = None
+
+    for line in lines:
+        if line.startswith("FROM:"):
+            from_id = line.split(":", 1)[1].strip()
+            break
+
+    if from_id:
+        print("[UNFOLLOW]")
+        print(f"\tUser {from_id} has unfollowed you\n\n")
+
+def print_file_offer(message):
+    lines = message.strip().split('\n')
+    from_id = None
+
+    for line in lines:
+        if line.startswith("FROM:"):
+            from_id = line.split(":", 1)[1].strip()
+            break
+
+    if from_id:
+        print("[FILE_OFFER]")
+        print(f"\tUser {from_id} is sending you a file. Do you accept?\n\n")
