@@ -7,8 +7,9 @@ server_port = 50999
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Example LSNP message (PROFILE type)
-message = """TYPE: PROFILE
-USER_ID: testuser@192.168.1.20
+user_id = f"testuser@{server_ip}"
+message = f"""TYPE: PROFILE
+USER_ID: {user_id}
 DISPLAY_NAME: TestUser
 STATUS: Just testing!
 

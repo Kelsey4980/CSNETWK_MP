@@ -1,11 +1,13 @@
 # this is copied code from lab 5. i just put it here first for base
 
-# ====== Import Modiles
+# ====== Import Modules
 from socket import *
 from utils import *
 import sys  # In order to terminate the program
-from dictionary import peers_IP, peer_profiles
 import threading
+import dictionary
+
+from dictionary import peers_IP, peer_profiles
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
@@ -18,8 +20,12 @@ sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
 PORT = 50999
 sock.bind(('', PORT)) # bind to port 50999
 
+# ====== Verbose Mode Support
+if "--verbose" in sys.argv:
+    dictionary.verbose_mode = True
+
 # ====== Server Proper
-print('===== >> LSNP is active << =====\n')
+print('===== >> LSNP is active << =====\n\n')
 
 def server_loop():
     while True:
@@ -28,14 +34,16 @@ def server_loop():
             message = data.decode('utf-8', errors='ignore') # converts bytes to String
 
             # IP Address Log
-            log_IP(addr[0], message)
-            store_IP(addr[0])
+            log_IP(addr[0])
 
             # handle PROFILE messages (mDNS-like behavior)
             user_id, display_name = parse_profile_message(message)
             if user_id and display_name:
                 peer_profiles[user_id] = (display_name, addr[0])
-                print(f">> [PROFILE] {display_name} ({user_id}) added/updated from IP {addr[0]}\n")
+                print(f">> [LOG] {display_name} ({user_id}) added/updated from IP {addr[0]}\n")
+
+            # print any incoming messages
+            print_message(message)
 
             extracted_msg_id = extract_message_id(message)
             if extracted_msg_id:

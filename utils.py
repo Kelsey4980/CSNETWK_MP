@@ -2,9 +2,6 @@
 import secrets
 import dictionary
 
-# ====== Variables
-peers_IP = dictionary.peers_IP
-
 # ====== Functions
 def generate_message_id(): # message ID generation
     return secrets.token_hex(8)
@@ -15,22 +12,28 @@ def extract_message_id(message): # extracts message ID
             return line.split(':', 1)[1].strip()
     return None
 
-def log_IP(ip_address, message):
-    print(f"Received message from IP: {ip_address}\n")
-    print(f"[RECV from {ip_address}]:\n{message}")
+def extract_message_type(message):
+    for line in message.strip().split('\n'):
+        if line.startswith("TYPE:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+# ====== IP Log
+def log_IP(ip_address):
+    print(f">> [LOG] Received (RECV) message from IP: {ip_address}\n")
+    store_IP(ip_address)
 
 def store_IP(ip_address):
-    if ip_address not in peers_IP:
-        peers_IP[ip_address] = True
+    if ip_address not in dictionary.peers_IP:
+        dictionary.peers_IP[ip_address] = True
+        print(f">> [LOG] New IP ({ip_address}) saved!\n")
 
-    print(f">> [LOG] Active IPs: {peers_IP}\n\n")
-
-# ------ mDNS Discovery
+# ====== mDNS Discovery
 def parse_profile_message(message):
     lines = message.strip().split('\n')
     msg_type = None
     user_id = None
-    display_name = None
+    display_name = None 
 
     for line in lines:
         if line.startswith("TYPE:"):
@@ -49,3 +52,67 @@ def print_known_peers(peer_profiles):
     for user_id, (name, ip) in peer_profiles.items():
         print(f"{name} ({user_id}) @ {ip}")
     print("-------------------\n")
+
+# ====== Printing
+def print_message(message):
+    print("\n============ >> PRINTING MESSAGE << ============\n\n")
+    
+    if (dictionary.verbose_mode):
+        vprint(message)
+    else:
+        nvprint(message)
+
+    print("============= >> END OF MESSAGE << =============\n\n")
+
+def vprint(message):
+    print(f"{message}")
+
+def nvprint(message):
+    incoming_type = extract_message_type(message)
+
+    if incoming_type == "PROFILE":
+        print_profile(message)
+    elif incoming_type == "POST":
+        print_post(message)
+
+# ====== Individual printing for non-verbose
+def print_profile(message):
+    lines = message.strip().split('\n')
+    status = None
+    display_name = None 
+
+    for line in lines:
+        if line.startswith("DISPLAY_NAME:"):
+            display_name = line.split(":", 1)[1].strip()
+        elif line.startswith("STATUS:"):
+            status = line.split(":", 1)[1].strip()
+
+    print(f"[PROFILE]")
+    print(f"\t{display_name}: {status}\n\n")
+
+def print_post(message):
+    user_id = None
+    content = None
+
+    # Parse lines
+    lines = message.strip().split('\n')
+    for line in lines:
+        if line.startswith("USER_ID:"):
+            user_id = line.split(":", 1)[1].strip()
+        elif line.startswith("CONTENT:"):
+            content = line.split(":", 1)[1].strip()
+
+    # Default fallback if no content or user_id
+    if not user_id or not content:
+        print("[POST] Invalid message format.")
+        return
+
+    # Check if we have display name
+    display_name = user_id
+    if user_id in dictionary.peer_profiles:
+        display_name = dictionary.peer_profiles[user_id][0]
+    
+    print("[POST]")
+    print(f"\tFrom: {display_name}")
+    print(f"\tContent: {content}")
+    print("\n")
