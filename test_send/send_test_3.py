@@ -27,4 +27,5 @@ TOKEN: {token}
 
 # Send message
 sock.sendto(message.encode(), (server_ip, server_port))
+time.sleep(0.5)
 sock.close()
