@@ -35,37 +35,100 @@ def server_loop():
 
             # IP Address Log
             log_IP(addr[0])
-
-            # handle PROFILE messages (mDNS-like behavior)
-            user_id, display_name = parse_profile_message(message)
-            if user_id and display_name:
-                peer_profiles[user_id] = (display_name, addr[0])
-                print(f">> [LOG] {display_name} ({user_id}) added/updated from IP {addr[0]}\n")
-
-            # print any incoming messages
-            print_message(message)
-
+            
+            # Process message using new parser
+            print("\n============ >> PROCESSING MESSAGE << ============\n")
+            process_message(message, addr[0])
+            print("============= >> END OF MESSAGE << =============\n")
+            
+            # Send ACK if message has MESSAGE_ID
             extracted_msg_id = extract_message_id(message)
             if extracted_msg_id:
                 ack = f"TYPE: ACK\nSTATUS: RECEIVED\nMESSAGE_ID: {extracted_msg_id}\n\n"
                 sock.sendto(ack.encode(), addr)
 
         except Exception as e:
-            print("Error:", e)
+            print(f"Error in server loop: {e}")
             sys.exit(1)
 
 # start the server in a thread
 threading.Thread(target=server_loop, daemon=True).start()
 
-# main input loop with prompt_toolkit patch_stdout for safe async prints
+# ====== Enhanced Command Interface
+def print_help():
+    """Print available commands"""
+    print("\n--- Available Commands ---")
+    print("peers          - List known peers")
+    print("ips            - List known IP addresses")
+    print("posts          - List all posts")
+    print("posts <user>   - List posts by specific user")
+    print("dms <user>     - List DMs from specific user")
+    print("stats          - Show message statistics")
+    print("verbose        - Toggle verbose mode")
+    print("help           - Show this help message")
+    print("exit/quit      - Exit the program")
+    print("-------------------------\n")
+
+def handle_command(cmd: str):
+    """Handle user commands"""
+    cmd = cmd.strip().lower()
+    parts = cmd.split()
+    
+    if not parts:
+        return
+    
+    command = parts[0]
+    
+    if command == "peers":
+        print_known_peers(peer_profiles)
+        
+    elif command == "ips":
+        print_saved_ip(peers_IP)
+        
+    elif command == "posts":
+        if len(parts) > 1:
+            user_id = parts[1]
+            list_posts_by_user(user_id)
+        else:
+            list_all_posts()
+            
+    elif command == "dms":
+        if len(parts) > 1:
+            user_id = parts[1]
+            list_dms_by_user(user_id)
+        else:
+            print("Usage: dms <user_id>")
+            
+    elif command == "stats":
+        get_message_statistics()
+        
+    elif command == "verbose":
+        dictionary.verbose_mode = not dictionary.verbose_mode
+        print(f"Verbose mode: {'ON' if dictionary.verbose_mode else 'OFF'}")
+        
+    elif command == "help":
+        print_help()
+        
+    elif command in ["exit", "quit"]:
+        print("Exiting...")
+        sys.exit(0)
+        
+    else:
+        print(f"Unknown command: {command}")
+        print("Type 'help' for available commands")
+
+# ====== Main Input Loop
 session = PromptSession()
+
+print("LSNP Server is running. Type 'help' for available commands.")
+print_help()
+
 with patch_stdout():
     while True:
         try:
-            cmd = session.prompt("Type 'peers' to list known peers:\n> ")
-            if cmd.strip().lower() == 'peers':
-                print_known_peers(peer_profiles)
-                print_saved_ip(peers_IP)
+            cmd = session.prompt("> ")
+            handle_command(cmd)
+            
         except KeyboardInterrupt:
             print("\nExiting...")
             break

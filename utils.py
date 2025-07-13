@@ -1,6 +1,10 @@
 # ====== Import Modules
 import secrets
 import dictionary
+from message_parser import MessageParser, MessageType
+
+# Initialize message parser
+message_parser = MessageParser(verbose_mode=dictionary.verbose_mode)
 
 # ====== Functions
 def generate_message_id(): # message ID generation
@@ -28,13 +32,48 @@ def store_IP(ip_address):
         dictionary.peers_IP[ip_address] = True
         print(f">> [LOG] New IP ({ip_address}) saved!\n")
 
-# ====== mDNS Discovery
+# ====== Message Processing with New Parser
+def process_message(raw_message: str, sender_ip: str) -> None:
+    """
+    Process incoming message using the new message parser
+    """
+    # Update parser verbose mode if it changed
+    message_parser.verbose_mode = dictionary.verbose_mode
+    
+    # Parse the message
+    parsed_message = message_parser.parse_message(raw_message, sender_ip)
+    
+    # Handle PROFILE messages for peer discovery
+    if parsed_message.message_type == MessageType.PROFILE:
+        handle_profile_message(parsed_message)
+    
+    # Print the formatted message
+    formatted_output = message_parser.format_message_output(parsed_message, dictionary.peer_profiles)
+    print(formatted_output)
+    
+    # Debug output for invalid messages
+    if not parsed_message.is_valid:
+        print(f">> [WARNING] Invalid message received from {sender_ip}")
+        if dictionary.verbose_mode:
+            print(parsed_message.to_debug_string())
+
+def handle_profile_message(message):
+    """Handle PROFILE messages for peer discovery"""
+    user_id = message.fields.get("USER_ID")
+    display_name = message.fields.get("DISPLAY_NAME")
+    
+    if user_id and display_name:
+        dictionary.peer_profiles[user_id] = (display_name, message.sender_ip)
+        print(f">> [LOG] {display_name} ({user_id}) added/updated from IP {message.sender_ip}\n")
+
+# ====== Legacy functions (kept for backward compatibility)
 def parse_profile_message(message):
+    """Legacy function - kept for backward compatibility"""
     lines = message.strip().split('\n')
     msg_type = None
     user_id = None
     display_name = None 
-
+    
     for line in lines:
         if line.startswith("TYPE:"):
             msg_type = line.split(":", 1)[1].strip()
@@ -42,7 +81,7 @@ def parse_profile_message(message):
             user_id = line.split(":", 1)[1].strip()
         elif line.startswith("DISPLAY_NAME:"):
             display_name = line.split(":", 1)[1].strip()
-
+    
     if msg_type == "PROFILE" and user_id and display_name:
         return user_id, display_name
     return None, None
@@ -55,27 +94,75 @@ def print_known_peers(peer_profiles):
 
 def print_saved_ip(peers_IP):
     print("--- Known IPs ---")
-    for ip in peers_IP.items():
+    for ip in peers_IP.keys():
         print(f"{ip}")
     print("-------------------\n")
 
-# ====== Printing
-def print_message(message):
-    print("\n============ >> PRINTING MESSAGE << ============\n\n")
+# ====== Enhanced Functions for Message Management
+def list_all_posts():
+    """List all stored posts"""
+    posts = message_parser.get_messages_by_type(MessageType.POST)
+    if not posts:
+        print("No posts found.\n")
+        return
     
-    if (dictionary.verbose_mode):
+    print("\n--- All Posts ---")
+    for post in posts:
+        display_name = post.get_display_name(dictionary.peer_profiles)
+        content = post.fields.get("CONTENT", "")
+        timestamp = post.timestamp
+        print(f"[{timestamp}] {display_name}: {content}")
+    print("-----------------\n")
+
+def list_posts_by_user(user_id: str):
+    """List all posts by a specific user"""
+    posts = message_parser.get_posts_by_user(user_id)
+    if not posts:
+        print(f"No posts found for user {user_id}\n")
+        return
+    
+    display_name = posts[0].get_display_name(dictionary.peer_profiles)
+    print(f"\n--- Posts by {display_name} ---")
+    for post in posts:
+        content = post.fields.get("CONTENT", "")
+        timestamp = post.timestamp
+        print(f"[{timestamp}] {content}")
+    print("-" * (len(display_name) + 15) + "\n")
+
+def list_dms_by_user(user_id: str):
+    """List all DMs from a specific user"""
+    dms = message_parser.get_dms_by_user(user_id)
+    if not dms:
+        print(f"No DMs found from user {user_id}\n")
+        return
+    
+    display_name = dms[0].get_display_name(dictionary.peer_profiles)
+    print(f"\n--- DMs from {display_name} ---")
+    for dm in dms:
+        content = dm.fields.get("CONTENT", "")
+        timestamp = dm.timestamp
+        print(f"[{timestamp}] {content}")
+    print("-" * (len(display_name) + 15) + "\n")
+
+def get_message_statistics():
+    """Get statistics about stored messages"""
+    message_parser.print_all_messages_summary()
+
+# ====== Legacy printing functions (kept for backward compatibility)
+def print_message(message):
+    print("\n============ >> PRINTING MESSAGE << ============\n")
+    
+    if dictionary.verbose_mode:
         vprint(message)
     else:
         nvprint(message)
-
-    print("============= >> END OF MESSAGE << =============\n\n")
+    print("============= >> END OF MESSAGE << =============\n")
 
 def vprint(message):
     print(f"{message}")
 
 def nvprint(message):
     incoming_type = extract_message_type(message)
-
     if incoming_type == "PROFILE":
         print_profile(message)
     elif incoming_type == "POST":
@@ -89,39 +176,32 @@ def nvprint(message):
     elif incoming_type == "FILE_OFFER":
         print_file_offer(message)
 
-# ====== Individual printing for non-verbose
 def print_profile(message):
     lines = message.strip().split('\n')
     status = None
     display_name = None 
-
     for line in lines:
         if line.startswith("DISPLAY_NAME:"):
             display_name = line.split(":", 1)[1].strip()
         elif line.startswith("STATUS:"):
             status = line.split(":", 1)[1].strip()
-
     print(f"[PROFILE]")
-    print(f"\t{display_name}: {status}\n\n")
+    print(f"\t{display_name}: {status}\n")
 
 def print_post(message):
     user_id = None
     content = None
-
-    # Parse lines
     lines = message.strip().split('\n')
     for line in lines:
         if line.startswith("USER_ID:"):
             user_id = line.split(":", 1)[1].strip()
         elif line.startswith("CONTENT:"):
             content = line.split(":", 1)[1].strip()
-
-    # Default fallback if no content or user_id
+    
     if not user_id or not content:
         print("[POST] Invalid message format.")
         return
-
-    # Check if we have display name
+    
     display_name = user_id
     if user_id in dictionary.peer_profiles:
         display_name = dictionary.peer_profiles[user_id][0]
@@ -129,64 +209,55 @@ def print_post(message):
     print("[POST]")
     print(f"\tFrom: {display_name}")
     print(f"\tContent: {content}")
-    print("\n")
+    print()
 
 def print_dm(message):
     lines = message.strip().split('\n')
     from_id = None
     content = None
-
     for line in lines:
         if line.startswith("FROM:"):
             from_id = line.split(":", 1)[1].strip()
         elif line.startswith("CONTENT:"):
             content = line.split(":", 1)[1].strip()
-
-    # Check if we know the sender's display name
+    
     if from_id in dictionary.peer_profiles:
         display_name = dictionary.peer_profiles[from_id][0]
     else:
         display_name = from_id
-
     print("[DM]")
     print(f"\t{display_name}: {content}")
-    print("\n")
+    print()
 
 def print_follow(message):
     lines = message.strip().split('\n')
     from_id = None
-
     for line in lines:
         if line.startswith("FROM:"):
             from_id = line.split(":", 1)[1].strip()
             break
-
     if from_id:
         print("[FOLLOW]")
-        print(f"\tUser {from_id} has followed you\n\n")
+        print(f"\tUser {from_id} has followed you\n")
 
 def print_unfollow(message):
     lines = message.strip().split('\n')
     from_id = None
-
     for line in lines:
         if line.startswith("FROM:"):
             from_id = line.split(":", 1)[1].strip()
             break
-
     if from_id:
         print("[UNFOLLOW]")
-        print(f"\tUser {from_id} has unfollowed you\n\n")
+        print(f"\tUser {from_id} has unfollowed you\n")
 
 def print_file_offer(message):
     lines = message.strip().split('\n')
     from_id = None
-
     for line in lines:
         if line.startswith("FROM:"):
             from_id = line.split(":", 1)[1].strip()
             break
-
     if from_id:
         print("[FILE_OFFER]")
-        print(f"\tUser {from_id} is sending you a file. Do you accept?\n\n")
+        print(f"\tUser {from_id} is sending you a file. Do you accept?\n")
