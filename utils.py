@@ -1,6 +1,7 @@
 # ====== Import Modules
 import secrets
 import dictionary
+import time
 from message_parser import MessageParser, MessageType
 
 # Initialize message parser
@@ -61,10 +62,40 @@ def handle_profile_message(message):
     """Handle PROFILE messages for peer discovery"""
     user_id = message.fields.get("USER_ID")
     display_name = message.fields.get("DISPLAY_NAME")
+    status = message.fields.get("STATUS", "")
     
     if user_id and display_name:
-        dictionary.peer_profiles[user_id] = (display_name, message.sender_ip)
-        print(f">> [LOG] {display_name} ({user_id}) added/updated from IP {message.sender_ip}\n")
+        # Check if this is a new peer or existing peer
+        if user_id in dictionary.peer_profiles:
+            # Existing peer - check what changed
+            old_display_name, old_ip, old_status = dictionary.peer_profiles[user_id]
+            
+            # Check what exactly changed
+            name_changed = display_name != old_display_name
+            ip_changed = message.sender_ip != old_ip
+            status_changed = status != old_status
+            
+            if not name_changed and not ip_changed and not status_changed:
+                # Everything is exactly the same
+                print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile from IP {message.sender_ip}\n")
+            else:
+                # Something changed - be specific about what
+                changes = []
+                if name_changed:
+                    changes.append(f"name: '{old_display_name}' → '{display_name}'")
+                if ip_changed:
+                    changes.append(f"IP: {old_ip} → {message.sender_ip}")
+                if status_changed:
+                    changes.append(f"status: '{old_status}' → '{status}'")
+                
+                change_desc = ", ".join(changes)
+                print(f">> [LOG] {display_name} ({user_id}) updated profile ({change_desc})\n")
+        else:
+            # New peer
+            print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}\n")
+        
+        # Update the peer profiles dictionary with status
+        dictionary.peer_profiles[user_id] = (display_name, message.sender_ip, status)
 
 # ====== Legacy functions (kept for backward compatibility)
 def parse_profile_message(message):
@@ -88,8 +119,8 @@ def parse_profile_message(message):
 
 def print_known_peers(peer_profiles):
     print("\n--- Known Peers ---")
-    for user_id, (name, ip) in peer_profiles.items():
-        print(f"{name} ({user_id}) @ {ip}")
+    for user_id, (name, ip, status) in peer_profiles.items():
+        print(f"{name} ({user_id}) @ {ip}: {status}")
     print("-------------------\n")
 
 def print_saved_ip(peers_IP):
@@ -99,6 +130,22 @@ def print_saved_ip(peers_IP):
     print("-------------------\n")
 
 # ====== Enhanced Functions for Message Management
+def list_all_profiles():
+    """List all stored profile messages"""
+    profiles = message_parser.get_messages_by_type(MessageType.PROFILE)
+    if not profiles:
+        print("No profile messages found.\n")
+        return
+    
+    print("\n--- All Profile Messages ---")
+    for profile in profiles:
+        display_name = profile.fields.get("DISPLAY_NAME", "Unknown")
+        user_id = profile.fields.get("USER_ID", "Unknown")
+        status = profile.fields.get("STATUS", "")
+        timestamp = profile.timestamp
+        print(f"[{time.ctime(timestamp)}] {display_name} ({user_id}): {status}")
+    print("---------------------------\n")
+
 def list_all_posts():
     """List all stored posts"""
     posts = message_parser.get_messages_by_type(MessageType.POST)
@@ -111,7 +158,7 @@ def list_all_posts():
         display_name = post.get_display_name(dictionary.peer_profiles)
         content = post.fields.get("CONTENT", "")
         timestamp = post.timestamp
-        print(f"[{timestamp}] {display_name}: {content}")
+        print(f"[{time.ctime(timestamp)}] {display_name}: {content}")
     print("-----------------\n")
 
 def list_posts_by_user(user_id: str):
@@ -126,7 +173,7 @@ def list_posts_by_user(user_id: str):
     for post in posts:
         content = post.fields.get("CONTENT", "")
         timestamp = post.timestamp
-        print(f"[{timestamp}] {content}")
+        print(f"[{time.ctime(timestamp)}] {content}")
     print("-" * (len(display_name) + 15) + "\n")
 
 def list_dms_by_user(user_id: str):
@@ -141,7 +188,7 @@ def list_dms_by_user(user_id: str):
     for dm in dms:
         content = dm.fields.get("CONTENT", "")
         timestamp = dm.timestamp
-        print(f"[{timestamp}] {content}")
+        print(f"[{time.ctime(timestamp)}] {content}")
     print("-" * (len(display_name) + 15) + "\n")
 
 def get_message_statistics():

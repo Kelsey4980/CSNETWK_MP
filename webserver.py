@@ -60,6 +60,7 @@ def print_help():
     print("\n--- Available Commands ---")
     print("peers          - List known peers")
     print("ips            - List known IP addresses")
+    print("profiles       - List all profiles")
     print("posts          - List all posts")
     print("posts <user>   - List posts by specific user")
     print("dms <user>     - List DMs from specific user")
@@ -84,6 +85,9 @@ def handle_command(cmd: str):
         
     elif command == "ips":
         print_saved_ip(peers_IP)
+    
+    elif command == "profiles": 
+        list_all_profiles()
         
     elif command == "posts":
         if len(parts) > 1:

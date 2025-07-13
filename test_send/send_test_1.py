@@ -7,7 +7,7 @@ PORT = 50999
 message = """TYPE: PROFILE
 USER_ID: alice@192.168.1.12
 DISPLAY_NAME: Alice
-STATUS: Hello from LSNP!
+STATUS: Hello from LSNP!!
 
 """
 

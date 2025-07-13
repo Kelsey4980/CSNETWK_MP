@@ -141,9 +141,11 @@ class MessageParser:
         # Validate message
         self._validate_message(message)
         
-        # Store message if it has a valid token
-        if message.validate_token() and "MESSAGE_ID" in fields:
-            self.message_storage[fields["MESSAGE_ID"]] = message
+        # Store message if it has a valid token OR if it's a PROFILE message
+        if (message.validate_token() and "MESSAGE_ID" in fields) or message.message_type == MessageType.PROFILE:
+            # Use a fallback ID for PROFILE messages without MESSAGE_ID
+            storage_id = fields.get("MESSAGE_ID", f"profile_{message.sender_ip}_{int(message.timestamp)}")
+            self.message_storage[storage_id] = message
             
         return message
     
