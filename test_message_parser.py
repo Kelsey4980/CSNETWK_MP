@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test script for LSNP Message Parser
 Tests parsing and validation of various message types
@@ -7,59 +6,81 @@ Tests parsing and validation of various message types
 from message_parser import MessageParser, MessageType
 import time
 
+def create_lsnp_message(**fields):
+    """Helper function to create properly formatted LSNP messages"""
+    lines = []
+    for key, value in fields.items():
+        lines.append(f"{key}: {value}")
+    return "\n".join(lines)
+
 def test_message_parser():
     """Test various message types with the parser"""
     parser = MessageParser(verbose_mode=True)
     
-    # Test PROFILE message
-    profile_msg = """TYPE: PROFILE
-USER_ID: alice@192.168.1.12
-DISPLAY_NAME: Alice
-STATUS: Hello from LSNP!"""
+    # Test PROFILE message - using helper function for clarity
+    profile_msg = create_lsnp_message(
+        TYPE="PROFILE",
+        USER_ID="alice@192.168.1.12",
+        DISPLAY_NAME="Alice",
+        STATUS="Hello from LSNP!"
+    )
     
     # Test POST message
-    post_msg = """TYPE: POST
-USER_ID: bob@192.168.1.13
-CONTENT: This is my first post!
-TTL: 3600
-MESSAGE_ID: abc123def456
-TOKEN: bob@192.168.1.13|9999999999|broadcast"""
+    post_msg = create_lsnp_message(
+        TYPE="POST",
+        USER_ID="bob@192.168.1.13",
+        CONTENT="This is my first post!",
+        TTL="3600",
+        MESSAGE_ID="abc123def456",
+        TOKEN="bob@192.168.1.13|9999999999|broadcast"
+    )
     
     # Test DM message
-    dm_msg = """TYPE: DM
-FROM: alice@192.168.1.12
-TO: bob@192.168.1.13
-CONTENT: Hello Bob!
-MESSAGE_ID: def456ghi789
-TOKEN: alice@192.168.1.12|9999999999|direct"""
+    dm_msg = create_lsnp_message(
+        TYPE="DM",
+        FROM="alice@192.168.1.12",
+        TO="bob@192.168.1.13",
+        CONTENT="Hello Bob!",
+        MESSAGE_ID="def456ghi789",
+        TOKEN="alice@192.168.1.12|9999999999|direct"
+    )
     
     # Test FILE_OFFER message
-    file_offer_msg = """TYPE: FILE_OFFER
-FROM: charlie@192.168.1.14
-FILENAME: document.pdf
-FILE_SIZE: 2048576
-MESSAGE_ID: ghi789jkl012
-TOKEN: charlie@192.168.1.14|9999999999|direct"""
+    file_offer_msg = create_lsnp_message(
+        TYPE="FILE_OFFER",
+        FROM="charlie@192.168.1.14",
+        FILENAME="document.pdf",
+        FILE_SIZE="2048576",
+        MESSAGE_ID="ghi789jkl012",
+        TOKEN="charlie@192.168.1.14|9999999999|direct"
+    )
     
     # Test GROUP_CREATE message
-    group_create_msg = """TYPE: GROUP_CREATE
-FROM: alice@192.168.1.12
-GROUP_ID: study_group_001
-GROUP_NAME: Study Group
-MESSAGE_ID: jkl012mno345
-TOKEN: alice@192.168.1.12|9999999999|group"""
+    group_create_msg = create_lsnp_message(
+        TYPE="GROUP_CREATE",
+        FROM="alice@192.168.1.12",
+        GROUP_ID="study_group_001",
+        GROUP_NAME="Study Group",
+        MESSAGE_ID="jkl012mno345",
+        TOKEN="alice@192.168.1.12|9999999999|group"
+    )
     
     # Test invalid message (missing required fields)
-    invalid_msg = """TYPE: POST
-USER_ID: dave@192.168.1.15
-MESSAGE_ID: mno345pqr678"""
+    invalid_msg = create_lsnp_message(
+        TYPE="POST",
+        USER_ID="dave@192.168.1.15",
+        MESSAGE_ID="mno345pqr678"
+        # Missing CONTENT and TOKEN - should be invalid
+    )
     
     # Test expired token message
-    expired_token_msg = f"""TYPE: POST
-USER_ID: eve@192.168.1.16
-CONTENT: This message has expired token
-MESSAGE_ID: pqr678stu901
-TOKEN: eve@192.168.1.16|{int(time.time()) - 3600}|broadcast"""
+    expired_token_msg = create_lsnp_message(
+        TYPE="POST",
+        USER_ID="eve@192.168.1.16",
+        CONTENT="This message has expired token",
+        MESSAGE_ID="pqr678stu901",
+        TOKEN=f"eve@192.168.1.16|{int(time.time()) - 3600}|broadcast"
+    )
     
     test_messages = [
         ("PROFILE", profile_msg),
@@ -85,6 +106,11 @@ TOKEN: eve@192.168.1.16|{int(time.time()) - 3600}|broadcast"""
     for test_name, message in test_messages:
         print(f"Testing: {test_name}")
         print("-" * 40)
+        
+        # Show the actual message being tested
+        print("Raw message:")
+        print(repr(message))  # Shows the exact format
+        print()
         
         # Parse the message
         parsed = parser.parse_message(message, "192.168.1.100")
@@ -142,16 +168,22 @@ def test_field_extraction():
     """Test field extraction functionality"""
     parser = MessageParser()
     
-    test_message = """TYPE: POST
-USER_ID: test@example.com
-CONTENT: This is a test message
-TTL: 3600
-MESSAGE_ID: test123
-TOKEN: test@example.com|9999999999|broadcast"""
+    # Test with properly formatted message
+    test_message = create_lsnp_message(
+        TYPE="POST",
+        USER_ID="test@example.com",
+        CONTENT="This is a test message",
+        TTL="3600",
+        MESSAGE_ID="test123",
+        TOKEN="test@example.com|9999999999|broadcast"
+    )
     
     fields = parser._extract_fields(test_message)
     
     print("\n=== FIELD EXTRACTION TEST ===")
+    print("Test message:")
+    print(repr(test_message))
+    print()
     print("Extracted fields:")
     for key, value in fields.items():
         print(f"  {key}: {value}")
@@ -163,7 +195,38 @@ TOKEN: test@example.com|9999999999|broadcast"""
     missing = [field for field in required if field not in fields]
     print(f"Missing fields: {missing}")
 
+def demonstrate_format_importance():
+    """Demonstrate why format matters for parsing"""
+    parser = MessageParser()
+    
+    print("\n=== FORMAT IMPORTANCE DEMO ===")
+    
+    # Correct format
+    correct_msg = create_lsnp_message(
+        TYPE="POST",
+        USER_ID="test@example.com",
+        CONTENT="Hello world"
+    )
+    
+    # Incorrect format (indented)
+    incorrect_msg = """TYPE: POST
+    USER_ID: test@example.com
+    CONTENT: Hello world"""
+    
+    print("CORRECT format:")
+    print(repr(correct_msg))
+    parsed_correct = parser.parse_message(correct_msg, "127.0.0.1")
+    print(f"Parsed fields: {parsed_correct.fields}")
+    print()
+    
+    print("INCORRECT format (indented):")
+    print(repr(incorrect_msg))
+    parsed_incorrect = parser.parse_message(incorrect_msg, "127.0.0.1")
+    print(f"Parsed fields: {parsed_incorrect.fields}")
+    print("Notice how indented fields are not parsed correctly!")
+
 if __name__ == "__main__":
     test_message_parser()
     test_field_extraction()
+    demonstrate_format_importance()
     print("\n=== ALL TESTS COMPLETED ===")
