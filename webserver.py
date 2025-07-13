@@ -65,6 +65,7 @@ with patch_stdout():
             cmd = session.prompt("Type 'peers' to list known peers:\n> ")
             if cmd.strip().lower() == 'peers':
                 print_known_peers(peer_profiles)
+                print_saved_ip(peers_IP)
         except KeyboardInterrupt:
             print("\nExiting...")
             break

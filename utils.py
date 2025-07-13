@@ -53,6 +53,12 @@ def print_known_peers(peer_profiles):
         print(f"{name} ({user_id}) @ {ip}")
     print("-------------------\n")
 
+def print_saved_ip(peers_IP):
+    print("--- Known IPs ---")
+    for ip in peers_IP.items():
+        print(f"{ip}")
+    print("-------------------\n")
+
 # ====== Printing
 def print_message(message):
     print("\n============ >> PRINTING MESSAGE << ============\n\n")
