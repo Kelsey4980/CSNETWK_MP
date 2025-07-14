@@ -31,10 +31,11 @@ class LSNPPeer:
     Each peer can send and receive messages without a central server
     """
     
-    # Discovery port - separate from communication port
+    # Use fixed ports for communication and discovery
+    COMM_PORT = 51000
     DISCOVERY_PORT = 50999
     
-    def __init__(self, port=None, username=None, display_name=None):
+    def __init__(self, username=None, display_name=None):
         # Set up discovery socket
         self.discovery_sock = socket(AF_INET, SOCK_DGRAM)
         self.discovery_sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -43,36 +44,28 @@ class LSNPPeer:
         try:
             self.discovery_sock.bind(('', self.DISCOVERY_PORT))
         except OSError as e:
-            print(f"Error binding discovery socket: {e}")
+            print(f"Error binding discovery socket on port {self.DISCOVERY_PORT}: {e}")
             sys.exit(1)
 
-        # Set up main socket for communication - use different port
+        # Set up main socket for communication
         self.sock = socket(AF_INET, SOCK_DGRAM)
         self.sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
         self.sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         
-        # Port configuration - ensure it's different from discovery port
-        if port:
-            self.port = port
-        else:
-            # Use a different default port than discovery
-            self.port = 51000 if dictionary.port == self.DISCOVERY_PORT else dictionary.port
-            
         try:
-            self.sock.bind(('', self.port))
+            self.sock.bind(('', self.COMM_PORT))
         except OSError as e:
-            print(f"Error binding to port {self.port}: {e}")
-            print("Trying to find an available port...")
-            self.port = self._find_available_port()
-            self.sock.bind(('', self.port))
-        
+            print(f"Error binding communication socket on port {self.COMM_PORT}: {e}")
+            print("Another peer may be running on this machine. Please close it and try again.")
+            sys.exit(1)
+            
         # Get local IP first
         self.local_ip = self._get_local_ip()
         
         # Create user_id dynamically as username@ip_address
-        self.username = username if username else f"user"
+        self.username = username if username else f"user_{self.local_ip.split('.')[-1]}"
         self.user_id = f"{self.username}@{self.local_ip}"
-        self.display_name = display_name if display_name else f"User_{self.port}"
+        self.display_name = display_name if display_name else self.username
         self.status = "Online"
         
         # Message builder for sending messages
@@ -80,37 +73,21 @@ class LSNPPeer:
         
         # Networking constants
         self.BROADCAST_IP = '<broadcast>'
-        self.MULTICAST_GROUP = '224.0.0.1'
         
-        # Peer discovery - store port info too
-        self.known_peers = {}  # IP -> (user_id, display_name, port, last_seen)
+        # Peer discovery - port is now constant, so no need to store it
+        self.known_peers = {}  # IP -> (user_id, display_name, last_seen)
         self.running = False
         
-        print(f'===== >> LSNP Peer Active :: {self.display_name} ({self.user_id}) :: Port {self.port} << =====\n')
-    
-    def _find_available_port(self, start_port=51000, max_attempts=100):
-        """Find an available port starting from start_port"""
-        for port in range(start_port, start_port + max_attempts):
-            if port == self.DISCOVERY_PORT:  # Skip discovery port
-                continue
-            try:
-                test_sock = socket(AF_INET, SOCK_DGRAM)
-                test_sock.bind(('', port))
-                test_sock.close()
-                return port
-            except OSError:
-                continue
-        raise RuntimeError("Could not find available port")
+        print(f'===== >> LSNP Peer Active :: {self.display_name} ({self.user_id}) :: Port {self.COMM_PORT} << =====\n')
     
     def _get_local_ip(self):
         """Get local IP address"""
         try:
             # Connect to a remote address to determine local IP
-            temp_sock = socket(AF_INET, SOCK_DGRAM)
-            temp_sock.connect(("8.8.8.8", 80))
-            local_ip = temp_sock.getsockname()[0]
+            with socket(AF_INET, SOCK_DGRAM) as temp_sock:
+                temp_sock.connect(("8.8.8.8", 80))
+                local_ip = temp_sock.getsockname()[0]
             print(f"[DEBUG] Local IP resolved to {local_ip}")
-            temp_sock.close()
             return local_ip
         except Exception:
             return "127.0.0.1"
@@ -119,25 +96,16 @@ class LSNPPeer:
         """Start the peer (listening and discovery)"""
         self.running = True
         
-        # Start listening thread for regular messages
-        listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
-        listen_thread.start()
+        threading.Thread(target=self._listen_loop, daemon=True).start()
+        threading.Thread(target=self._listen_discovery_loop, daemon=True).start()
+        threading.Thread(target=self._discovery_loop, daemon=True).start()
         
-        # Start discovery listening thread
-        discovery_listen_thread = threading.Thread(target=self._listen_discovery_loop, daemon=True)
-        discovery_listen_thread.start()
-        
-        # Start periodic discovery maintenance
-        discovery_thread = threading.Thread(target=self._discovery_loop, daemon=True)
-        discovery_thread.start()
-        
-        # Send initial profile broadcast
         self.broadcast_profile()
         
-        print(f"Peer started successfully on port {self.port}")
+        print(f"Peer started successfully on port {self.COMM_PORT}")
         print(f"Discovery running on port {self.DISCOVERY_PORT}")
         print("Type 'help' for available commands.\n")
-    
+
     def _listen_loop(self):
         """Main listening loop for regular messages"""
         while self.running:
@@ -146,10 +114,9 @@ class LSNPPeer:
                 message = data.decode('utf-8', errors='ignore')
                 
                 # Skip messages from self
-                if addr[0] == self.local_ip and addr[1] == self.port:
+                if addr[0] == self.local_ip and addr[1] == self.COMM_PORT:
                     continue
                 
-                # Log IP and process message
                 log_IP(addr[0])
                 
                 print("\n============ >> PROCESSING MESSAGE << ============\n")
@@ -160,8 +127,9 @@ class LSNPPeer:
                 extracted_msg_id = extract_message_id(message)
                 if extracted_msg_id:
                     ack = self.message_builder.build_ack(extracted_msg_id, "RECEIVED")
-                    self.sock.sendto(ack.encode(), addr)
-                
+                    # Send ACK back to the communication port
+                    self.sock.sendto(ack.encode(), (addr[0], self.COMM_PORT))
+                    
             except Exception as e:
                 if self.running:
                     print(f"Error in listen loop: {e}")
@@ -173,19 +141,15 @@ class LSNPPeer:
                 data, addr = self.discovery_sock.recvfrom(65535)
                 message = data.decode('utf-8', errors='ignore')
 
-                # Initialize the variable to None to prevent UnboundLocalError
                 sender_user_id = None
-                
                 try:
-                    # Find the line starting with USER_ID and extract the value
                     for line in message.split('\n'):
                         if line.startswith("USER_ID:"):
                             sender_user_id = line.split(': ')[1].strip()
                             break
                 except IndexError:
-                    pass # Ignore messages that can't be parsed
+                    continue # Ignore messages that can't be parsed
 
-                # Now, check if the message's user_id matches our own.
                 if sender_user_id == self.user_id:
                     continue # Skip our own broadcast
 
@@ -195,58 +159,40 @@ class LSNPPeer:
                 utils_manager.process_message(message, addr[0])
                 print("=========== >> END OF DISCOVERY << ==========\n\n")
 
-                # Send ACK if message has MESSAGE_ID - but send to main port
-                extracted_msg_id = extract_message_id(message)
-                if extracted_msg_id:
-                    ack = self.message_builder.build_ack(extracted_msg_id, "RECEIVED")
-                    peer_port = self._get_peer_port(addr[0])
-                    if peer_port:
-                        self.sock.sendto(ack.encode(), (addr[0], peer_port))
-
-                self._update_peer_discovery(addr[0], addr[1])
+                self._update_peer_discovery(addr[0])
 
             except Exception as e:
                 if self.running:
                     print(f"Error in discovery listen loop: {e}")
-
-    def _get_peer_port(self, peer_ip):
-        """Get the main communication port for a peer"""
-        # Check if we know this peer's port
-        if peer_ip in self.known_peers:
-            return self.known_peers[peer_ip][2]  # port is at index 2
-        
-        # Default to same port as ours if unknown
-        return self.port
     
-    def _update_peer_discovery(self, peer_ip, peer_port):
+    def _update_peer_discovery(self, peer_ip):
         """Update peer discovery information"""
         print(f"[DEBUG] Attempting to match peer IP: {peer_ip}")
         print(f"[DEBUG] peer_profiles: {peer_profiles}")
 
         for user_id, (display_name, ip, status) in peer_profiles.items():
             if ip == peer_ip:
-                self.known_peers[peer_ip] = (user_id, display_name, peer_port, time.time())
+                self.known_peers[peer_ip] = (user_id, display_name, time.time())
                 break
     
     def _discovery_loop(self):
         """Periodic peer discovery and maintenance"""
         while self.running:
             try:
-                # Send periodic profile broadcast for peer discovery
                 self.broadcast_profile()
                 
                 # Clean up old peers (not seen for 5 minutes)
                 current_time = time.time()
-                stale_peers = []
-                for ip, (user_id, display_name, port, last_seen) in self.known_peers.items():
-                    if current_time - last_seen > 300:  # 5 minutes
-                        stale_peers.append(ip)
+                stale_peers = [
+                    ip for ip, (_, _, last_seen) in self.known_peers.items()
+                    if current_time - last_seen > 300  # 5 minutes
+                ]
                 
                 for ip in stale_peers:
                     del self.known_peers[ip]
                     print(f"Removed stale peer: {ip}")
                 
-                time.sleep(30)  # Discovery every 30 seconds
+                time.sleep(60)  # Discovery every 60 seconds
                 
             except Exception as e:
                 if self.running:
@@ -256,24 +202,16 @@ class LSNPPeer:
         """Broadcast profile to discover and announce to other peers"""
         try:
             profile_msg = self.message_builder.build_profile(self.status)
-            # Send the standard broadcast
             self.discovery_sock.sendto(profile_msg.encode(), (self.BROADCAST_IP, self.DISCOVERY_PORT))
-            
-            # Also send to localhost for local peer discovery
             self.discovery_sock.sendto(profile_msg.encode(), ('127.0.0.1', self.DISCOVERY_PORT))
-            
         except Exception as e:
             print(f"Error broadcasting profile: {e}")
     
     def send_message_to_peer(self, target_ip, message):
-        """Send message to a specific peer"""
+        """Send message to a specific peer on the fixed communication port"""
         try:
-            # Get the peer's communication port
-            target_port = self._get_peer_port(target_ip)
-            
-            self.sock.sendto(message.encode(), (target_ip, target_port))
-            print(f"Message sent to {target_ip}:{target_port}")
-            
+            self.sock.sendto(message.encode(), (target_ip, self.COMM_PORT))
+            print(f"Message sent to {target_ip}:{self.COMM_PORT}")
         except Exception as e:
             print(f"Error sending message to {target_ip}: {e}")
     
@@ -288,8 +226,8 @@ class LSNPPeer:
                     self.send_message_to_peer(peer_ip, post_msg)
             else:
                 # If no known peers, broadcast to main port
-                self.sock.sendto(post_msg.encode(), (self.BROADCAST_IP, self.port))
-                
+                self.sock.sendto(post_msg.encode(), (self.BROADCAST_IP, self.COMM_PORT))
+            
             print(f"Post sent: {content}")
             
         except Exception as e:
@@ -297,58 +235,56 @@ class LSNPPeer:
     
     def send_dm(self, target_user_id, content):
         """Send a direct message to a specific user"""
+        target_ip = None
+        for user_id, (_, ip, _) in peer_profiles.items():
+            if user_id == target_user_id:
+                target_ip = ip
+                break
+        
+        if not target_ip:
+            print(f"User {target_user_id} not found or is offline.")
+            return
+        
         try:
-            # Find target user's IP
-            target_ip = None
-            for user_id, (display_name, ip, status) in peer_profiles.items():
-                if user_id == target_user_id:
-                    target_ip = ip
-                    break
-            
-            if not target_ip:
-                print(f"User {target_user_id} not found in known peers")
-                return
-            
             dm_msg = self.message_builder.build_dm(target_user_id, content)
             self.send_message_to_peer(target_ip, dm_msg)
             print(f"DM sent to {target_user_id}: {content}")
-            
         except Exception as e:
             print(f"Error sending DM: {e}")
     
     def send_follow(self, target_user_id):
         """Send follow request to a user"""
+        target_ip = None
+        for user_id, (_, ip, _) in peer_profiles.items():
+            if user_id == target_user_id:
+                target_ip = ip
+                break
+        
+        if not target_ip:
+            print(f"User {target_user_id} not found in known peers")
+            return
+        
         try:
-            target_ip = None
-            for user_id, (display_name, ip, status) in peer_profiles.items():
-                if user_id == target_user_id:
-                    target_ip = ip
-                    break
-            
-            if not target_ip:
-                print(f"User {target_user_id} not found in known peers")
-                return
-            
             follow_msg = self.message_builder.build_follow(target_user_id)
             self.send_message_to_peer(target_ip, follow_msg)
             print(f"Follow request sent to {target_user_id}")
-            
         except Exception as e:
             print(f"Error sending follow: {e}")
-    
+
     def send_ping(self, target_ip=None):
         """Send ping to discover peers"""
         try:
             ping_msg = self.message_builder.build_ping()
             if target_ip:
+                # Ping a specific peer on the communication port
                 self.send_message_to_peer(target_ip, ping_msg)
             else:
-                # Broadcast ping on discovery port
+                # Broadcast ping on discovery port to find everyone
                 self.discovery_sock.sendto(ping_msg.encode(), (self.BROADCAST_IP, self.DISCOVERY_PORT))
             print("Ping sent")
-            
         except Exception as e:
             print(f"Error sending ping: {e}")
+            
     
     def handle_command(self, cmd: str):
         """Handle user commands"""
@@ -495,18 +431,9 @@ class LSNPPeer:
 
 def main():
     """Main function to start the peer"""
-    # Parse command line arguments
-    port = None
+    # Parse command line arguments for username and display name
     username = None
     display_name = None
-    
-    if "--port" in sys.argv:
-        try:
-            port_idx = sys.argv.index("--port")
-            port = int(sys.argv[port_idx + 1])
-        except (ValueError, IndexError):
-            print("Invalid port specified")
-            sys.exit(1)
     
     if "--username" in sys.argv:
         try:
@@ -524,29 +451,21 @@ def main():
             print("Invalid display name specified")
             sys.exit(1)
     
-    # Set verbose mode
     if "--verbose" in sys.argv:
         dictionary.verbose_mode = True
     
-    # Create and start peer
-    peer = LSNPPeer(port=port, username=username, display_name=display_name)
+    # Create and start peer (no port argument needed)
+    peer = LSNPPeer(username=username, display_name=display_name)
     peer.start()
     
-    # Command interface
     session = PromptSession()
-    peer.print_help()
     
     with patch_stdout():
         while True:
             try:
                 cmd = session.prompt("> ")
                 peer.handle_command(cmd)
-                
-            except KeyboardInterrupt:
-                print("\nShutting down...")
-                peer.stop()
-                break
-            except EOFError:
+            except (KeyboardInterrupt, EOFError):
                 print("\nShutting down...")
                 peer.stop()
                 break
