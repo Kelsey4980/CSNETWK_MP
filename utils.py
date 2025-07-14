@@ -100,7 +100,7 @@ def handle_profile_message(message):
         status_changed = status != old_status
         
         if not name_changed and not status_changed:
-            print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile")
+            print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile\n")
         else:
             changes = []
             if name_changed:
@@ -109,9 +109,9 @@ def handle_profile_message(message):
                 changes.append(f"status: '{old_status}' → '{status}'")
             
             change_desc = ", ".join(changes)
-            print(f">> [LOG] {display_name} ({user_id}) updated profile ({change_desc})")
+            print(f">> [LOG] {display_name} ({user_id}) updated profile ({change_desc})\n")
     else:
-        print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}")
+        print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}\n")
     
     # Update the peer profiles dictionary (only if validation passed)
     dictionary.peer_profiles[user_id] = (display_name, message.sender_ip, status)
