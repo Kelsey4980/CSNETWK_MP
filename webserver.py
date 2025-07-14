@@ -17,7 +17,7 @@ BROADCAST_IP = '<broadcast>' # will be used for PING or PROFILE
 sock = socket(AF_INET, SOCK_DGRAM) # AF_INET means IPv4, SOCK_DGRAM means UDP
 sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
 
-PORT = 50999
+PORT = dictionary.port
 sock.bind(('', PORT)) # bind to port 50999
 
 # ====== Verbose Mode Support
@@ -25,7 +25,7 @@ if "--verbose" in sys.argv:
     dictionary.verbose_mode = True
 
 # ====== Server Proper
-print('===== >> LSNP is active << =====\n\n')
+print(F'===== >> LSNP is active :: Listening to {PORT} << =====\n\n')
 
 def server_loop():
     while True:
@@ -39,7 +39,7 @@ def server_loop():
             # Process message using new parser
             print("\n============ >> PROCESSING MESSAGE << ============\n")
             process_message(message, addr[0])
-            print("============= >> END OF MESSAGE << =============\n")
+            print("============= >> END OF MESSAGE << =============\n\n")
             
             # Send ACK if message has MESSAGE_ID
             extracted_msg_id = extract_message_id(message)
@@ -101,14 +101,14 @@ def handle_command(cmd: str):
             user_id = parts[1]
             list_dms_by_user(user_id)
         else:
-            print("Usage: dms <user_id>")
+            print("Usage: dms <user_id>\n")
             
     elif command == "stats":
         get_message_statistics()
         
     elif command == "verbose":
         dictionary.verbose_mode = not dictionary.verbose_mode
-        print(f"Verbose mode: {'ON' if dictionary.verbose_mode else 'OFF'}")
+        print(f"Verbose mode: {'ON' if dictionary.verbose_mode else 'OFF'}\n")
         
     elif command == "help":
         print_help()
@@ -119,12 +119,12 @@ def handle_command(cmd: str):
         
     else:
         print(f"Unknown command: {command}")
-        print("Type 'help' for available commands")
+        print("Type 'help' for available commands\n")
 
 # ====== Main Input Loop
 session = PromptSession()
 
-print("LSNP Server is running. Type 'help' for available commands.")
+print("LSNP Server is running. Type 'help' for available commands.\n")
 print_help()
 
 with patch_stdout():

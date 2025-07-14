@@ -143,7 +143,7 @@ def print_known_peers(peer_profiles):
     print("-------------------\n")
 
 def print_saved_ip(peers_IP):
-    print("--- Known IPs ---")
+    print("\n--- Known IPs ---")
     for ip in peers_IP.keys():
         print(f"{ip}")
     print("-------------------\n")
