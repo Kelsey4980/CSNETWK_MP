@@ -59,42 +59,44 @@ def process_message(raw_message: str, sender_ip: str) -> None:
             print(parsed_message.to_debug_string())
 
 def handle_profile_message(message):
-    """Handle PROFILE messages for peer discovery"""
     user_id = message.fields.get("USER_ID")
     display_name = message.fields.get("DISPLAY_NAME")
     status = message.fields.get("STATUS", "")
     
     if user_id and display_name:
+        # Validate IP matches USER_ID
+        try:
+            claimed_ip = user_id.split('@')[1]
+            if claimed_ip != message.sender_ip:
+                print(f">> [WARNING] IP mismatch: USER_ID claims {claimed_ip} but sent from {message.sender_ip}")
+                return
+        except IndexError:
+            print(f">> [WARNING] Invalid USER_ID format: {user_id}")
+            return
+        
         # Check if this is a new peer or existing peer
         if user_id in dictionary.peer_profiles:
-            # Existing peer - check what changed
             old_display_name, old_ip, old_status = dictionary.peer_profiles[user_id]
             
-            # Check what exactly changed
+            # Note: old_ip should always equal message.sender_ip for valid messages
             name_changed = display_name != old_display_name
-            ip_changed = message.sender_ip != old_ip
             status_changed = status != old_status
             
-            if not name_changed and not ip_changed and not status_changed:
-                # Everything is exactly the same
-                print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile from IP {message.sender_ip}\n")
+            if not name_changed and not status_changed:
+                print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile\n")
             else:
-                # Something changed - be specific about what
                 changes = []
                 if name_changed:
                     changes.append(f"name: '{old_display_name}' → '{display_name}'")
-                if ip_changed:
-                    changes.append(f"IP: {old_ip} → {message.sender_ip}")
                 if status_changed:
                     changes.append(f"status: '{old_status}' → '{status}'")
                 
                 change_desc = ", ".join(changes)
                 print(f">> [LOG] {display_name} ({user_id}) updated profile ({change_desc})\n")
         else:
-            # New peer
             print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}\n")
         
-        # Update the peer profiles dictionary with status
+        # Update the peer profiles dictionary
         dictionary.peer_profiles[user_id] = (display_name, message.sender_ip, status)
 
 # ====== Legacy functions (kept for backward compatibility)
