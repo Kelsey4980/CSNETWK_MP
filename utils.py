@@ -54,7 +54,7 @@ def process_message(raw_message: str, sender_ip: str) -> None:
     
     # Debug output for invalid messages
     if not parsed_message.is_valid:
-        print(f">> [WARNING] Invalid message received from {sender_ip}")
+        print(f">> [WARNING] Invalid message received from {sender_ip}\n")
         if dictionary.verbose_mode:
             print(parsed_message.to_debug_string())
 
