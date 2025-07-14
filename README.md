@@ -56,3 +56,8 @@
       - Field extraction and validation for different message types.
       - Token validation with expiration and scope checking.
       - Debug output for invalid messages and parsing errors.
+
+# TODO: 
+- implement different known peers display (so that even ping will be registered to known peers; currently only profile messages save to peer because of tuple defn)
+- improve verbose and non-verbose display (refer to the RFC for non-verbose)
+- implement other message features (probably unfollow next)
