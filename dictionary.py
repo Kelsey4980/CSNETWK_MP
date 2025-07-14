@@ -9,8 +9,8 @@ peer_profiles = {}
 # verbose mode
 verbose_mode = False
 
-# port
-port = 50999
+# port - changed from 50999 to avoid conflict with discovery port
+port = 51000
 
 # ttl
 ttl = 3600
