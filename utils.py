@@ -70,13 +70,13 @@ class DisplayManager:
         if not known_peers:
             print("\n--- No Known Peers ---\n")
             return
-        
+
         print("\n--- Known Peers ---")
-        for ip, (user_id, display_name, status, _) in known_peers.items():
+        for user_id, (display_name, ip, status, _) in known_peers.items():
             status_text = f": {status}" if status else ""
             print(f"{display_name} ({user_id}) @ {ip}{status_text}")
         print("-------------------\n")
-    
+
     def print_known_ips(self, known_ips: Set[str]):
         """Print all known IP addresses"""
         if not known_ips:
@@ -129,12 +129,23 @@ class DisplayManager:
         print("  status [msg] - View or set status message")
         print("  info         - Show peer information")
         print("  stats        - Show message statistics")
+        print("  following    - List peers followed")
         print()
         print("System Commands:")
         print("  verbose      - Toggle verbose mode")
         print("  help         - Show this help")
         print("  exit/quit    - Exit the peer")
         print("==========================\n")
+
+    def print_following_list(self, following):
+        """List all users we're following"""
+        if len(following) == 0:
+            print("You're not following anyone yet")
+            return
+            
+        print("You're following:")
+        for user_id in following:
+            print(f"  - {user_id}")
 
 # Create global display manager instance
 display_manager = DisplayManager()
