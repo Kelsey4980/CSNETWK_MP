@@ -22,11 +22,12 @@ class MessageType(Enum):
     GROUP_CREATE = "GROUP_CREATE"
     GROUP_UPDATE = "GROUP_UPDATE"
     GROUP_MESSAGE = "GROUP_MESSAGE"
-    GAME_START = "GAME_START"
-    GAME_MOVE = "GAME_MOVE"
-    GAME_END = "GAME_END"
+    TICTACTOE_INVITE = "TICTACTOE_INVITE"
+    TICTACTOE_MOVE = "TICTACTOE_MOVE"
+    TICTACTOE_RESULT = "TICTACTOE_RESULT"
     ACK = "ACK"
     PING = "PING"
+    REVOKE = "REVOKE"
 
 @dataclass
 class LSNPMessage:
@@ -68,8 +69,8 @@ class LSNPMessage:
                 self.validation_errors.append("Token expired")
                 return False
                 
-            # Validate scope (basic validation)
-            valid_scopes = ["broadcast", "direct", "group"]
+            # Validate scope according to RFC
+            valid_scopes = ["chat", "file", "broadcast", "follow", "game", "group"]
             if scope not in valid_scopes:
                 self.validation_errors.append(f"Invalid token scope: {scope}")
                 return False
@@ -183,25 +184,26 @@ class MessageParser:
                 message.is_valid = False
     
     def _get_required_fields(self, message_type: MessageType) -> List[str]:
-        """Get required fields for each message type"""
+        """Get required fields for each message type based on RFC"""
         required_fields_map = {
-            MessageType.PROFILE: ["USER_ID", "DISPLAY_NAME"],
-            MessageType.POST: ["USER_ID", "CONTENT", "TOKEN"],
-            MessageType.DM: ["FROM", "TO", "CONTENT", "TOKEN"],
-            MessageType.FOLLOW: ["FROM", "TOKEN"],
-            MessageType.UNFOLLOW: ["FROM", "TOKEN"],
-            MessageType.LIKE: ["FROM", "POST_ID", "TOKEN"],
-            MessageType.FILE_OFFER: ["FROM", "FILENAME", "FILE_SIZE", "TOKEN"],
-            MessageType.FILE_CHUNK: ["FROM", "FILENAME", "CHUNK_NUMBER", "DATA", "TOKEN"],
-            MessageType.FILE_RECEIVED: ["FROM", "FILENAME", "TOKEN"],
-            MessageType.GROUP_CREATE: ["FROM", "GROUP_ID", "GROUP_NAME", "TOKEN"],
-            MessageType.GROUP_UPDATE: ["FROM", "GROUP_ID", "ACTION", "TOKEN"],
-            MessageType.GROUP_MESSAGE: ["FROM", "GROUP_ID", "CONTENT", "TOKEN"],
-            MessageType.GAME_START: ["FROM", "GAME_TYPE", "TOKEN"],
-            MessageType.GAME_MOVE: ["FROM", "GAME_ID", "MOVE", "TOKEN"],
-            MessageType.GAME_END: ["FROM", "GAME_ID", "RESULT", "TOKEN"],
-            MessageType.ACK: ["STATUS", "MESSAGE_ID"],
-            MessageType.PING: [],
+            MessageType.PROFILE: ["TYPE", "USER_ID", "DISPLAY_NAME"],
+            MessageType.POST: ["TYPE", "USER_ID", "CONTENT", "TTL", "MESSAGE_ID", "TOKEN"],
+            MessageType.DM: ["TYPE", "FROM", "TO", "CONTENT", "TIMESTAMP", "MESSAGE_ID", "TOKEN"],
+            MessageType.PING: ["TYPE", "USER_ID"],
+            MessageType.ACK: ["TYPE", "MESSAGE_ID", "STATUS"],
+            MessageType.FOLLOW: ["TYPE", "MESSAGE_ID", "FROM", "TO", "TIMESTAMP", "TOKEN"],
+            MessageType.UNFOLLOW: ["TYPE", "MESSAGE_ID", "FROM", "TO", "TIMESTAMP", "TOKEN"],
+            MessageType.FILE_OFFER: ["TYPE", "FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "TIMESTAMP", "TOKEN"],
+            MessageType.FILE_CHUNK: ["TYPE", "FROM", "TO", "FILEID", "CHUNK_INDEX", "TOTAL_CHUNKS", "CHUNK_SIZE", "TOKEN", "DATA"],
+            MessageType.FILE_RECEIVED: ["TYPE", "FROM", "TO", "FILEID", "STATUS", "TIMESTAMP"],
+            MessageType.REVOKE: ["TYPE", "TOKEN"],
+            MessageType.TICTACTOE_INVITE: ["TYPE", "FROM", "TO", "GAMEID", "MESSAGE_ID", "SYMBOL", "TIMESTAMP", "TOKEN"],
+            MessageType.TICTACTOE_MOVE: ["TYPE", "FROM", "TO", "GAMEID", "MESSAGE_ID", "POSITION", "SYMBOL", "TURN", "TOKEN"],
+            MessageType.TICTACTOE_RESULT: ["TYPE", "FROM", "TO", "GAMEID", "MESSAGE_ID", "RESULT", "SYMBOL", "TIMESTAMP"],
+            MessageType.LIKE: ["TYPE", "FROM", "TO", "POST_TIMESTAMP", "ACTION", "TIMESTAMP", "TOKEN"],
+            MessageType.GROUP_CREATE: ["TYPE", "FROM", "GROUP_ID", "GROUP_NAME", "MEMBERS", "TIMESTAMP", "TOKEN"],
+            MessageType.GROUP_UPDATE: ["TYPE", "FROM", "GROUP_ID", "TIMESTAMP", "TOKEN"],
+            MessageType.GROUP_MESSAGE: ["TYPE", "FROM", "GROUP_ID", "CONTENT", "TIMESTAMP", "TOKEN"],
         }
         
         return required_fields_map.get(message_type, [])
@@ -220,7 +222,7 @@ class MessageParser:
         return f"[VERBOSE] {message.message_type.value}\n{message.raw_message}"
     
     def _format_non_verbose_output(self, message: LSNPMessage, peer_profiles: Dict) -> str:
-        """Format message for non-verbose output (user-friendly)"""
+        """Format message for non-verbose output (user-friendly) according to RFC"""
         display_name = message.get_display_name(peer_profiles)
         
         if message.message_type == MessageType.PROFILE:
@@ -236,37 +238,66 @@ class MessageParser:
             return f"[DM]\n\t{display_name}: {content}\n"
             
         elif message.message_type == MessageType.FOLLOW:
-            return f"[FOLLOW]\n\tUser {display_name} has followed you\n"
+            from_user = message.fields.get("FROM", "")
+            return f"[FOLLOW]\n\tUser {from_user} has followed you\n"
             
         elif message.message_type == MessageType.UNFOLLOW:
-            return f"[UNFOLLOW]\n\tUser {display_name} has unfollowed you\n"
+            from_user = message.fields.get("FROM", "")
+            return f"[UNFOLLOW]\n\tUser {from_user} has unfollowed you\n"
             
         elif message.message_type == MessageType.LIKE:
-            post_id = message.fields.get("POST_ID", "")
-            return f"[LIKE]\n\t{display_name} liked your post ({post_id})\n"
+            from_user = message.fields.get("FROM", "")
+            post_timestamp = message.fields.get("POST_TIMESTAMP", "")
+            return f"[LIKE]\n\t{from_user} likes your post [post {post_timestamp} message]\n"
             
         elif message.message_type == MessageType.FILE_OFFER:
-            filename = message.fields.get("FILENAME", "")
-            file_size = message.fields.get("FILE_SIZE", "")
-            return f"[FILE_OFFER]\n\tUser {display_name} is sending you a file: {filename} ({file_size} bytes)\n"
+            from_user = message.fields.get("FROM", "")
+            return f"[FILE_OFFER]\n\tUser {from_user} is sending you a file do you accept?\n"
+            
+        elif message.message_type == MessageType.FILE_CHUNK:
+            # RFC says: "Do not print anything until all the chunks are completed"
+            return ""
+            
+        elif message.message_type == MessageType.FILE_RECEIVED:
+            # RFC says: "Do not print anything"
+            return ""
+            
+        elif message.message_type == MessageType.REVOKE:
+            # RFC says: "Do not print anything"
+            return ""
+            
+        elif message.message_type == MessageType.TICTACTOE_INVITE:
+            from_user = message.fields.get("FROM", "")
+            return f"[TICTACTOE_INVITE]\n\t{from_user} is inviting you to play tic-tac-toe.\n"
+            
+        elif message.message_type == MessageType.TICTACTOE_MOVE:
+            # RFC says: "Print the board"
+            return f"[TICTACTOE_MOVE]\n\tPrint the board.\n"
+            
+        elif message.message_type == MessageType.TICTACTOE_RESULT:
+            # RFC says: "Print only the board and whose turn it is"
+            return f"[TICTACTOE_RESULT]\n\tPrint only the board and whose turn it is.\n"
             
         elif message.message_type == MessageType.GROUP_CREATE:
             group_name = message.fields.get("GROUP_NAME", "")
-            return f"[GROUP_CREATE]\n\t{display_name} created group: {group_name}\n"
+            return f"[GROUP_CREATE]\n\tYou've been added to {group_name}\n"
+            
+        elif message.message_type == MessageType.GROUP_UPDATE:
+            group_name = message.fields.get("GROUP_NAME", "Unknown Group")
+            return f"[GROUP_UPDATE]\n\tThe group \"{group_name}\" member list was updated.\n"
             
         elif message.message_type == MessageType.GROUP_MESSAGE:
-            group_id = message.fields.get("GROUP_ID", "")
+            from_user = message.fields.get("FROM", "")
             content = message.fields.get("CONTENT", "")
-            return f"[GROUP_MESSAGE] {group_id}\n\t{display_name}: {content}\n"
+            return f"[GROUP_MESSAGE]\n\t{from_user} sent \"{content}\"\n"
             
-        elif message.message_type == MessageType.GAME_START:
-            game_type = message.fields.get("GAME_TYPE", "")
-            return f"[GAME_START]\n\t{display_name} started a {game_type} game\n"
+        elif message.message_type == MessageType.PING:
+            # RFC says: "Do not display anything"
+            return ""
             
-        elif message.message_type == MessageType.GAME_MOVE:
-            game_id = message.fields.get("GAME_ID", "")
-            move = message.fields.get("MOVE", "")
-            return f"[GAME_MOVE] {game_id}\n\t{display_name} played: {move}\n"
+        elif message.message_type == MessageType.ACK:
+            # RFC says: "Do not display anything"
+            return ""
             
         else:
             return f"[{message.message_type.value}]\n\tFrom: {display_name}\n"

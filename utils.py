@@ -37,6 +37,7 @@ def store_IP(ip_address):
 def process_message(raw_message: str, sender_ip: str) -> None:
     """
     Process incoming message using the new message parser
+    Updated to handle warnings properly
     """
     # Update parser verbose mode if it changed
     message_parser.verbose_mode = dictionary.verbose_mode
@@ -48,56 +49,72 @@ def process_message(raw_message: str, sender_ip: str) -> None:
     if parsed_message.message_type == MessageType.PROFILE:
         handle_profile_message(parsed_message)
     
-    # Print the formatted message
-    formatted_output = message_parser.format_message_output(parsed_message, dictionary.peer_profiles)
-    print(formatted_output)
+    # Only print formatted output for valid messages or if verbose mode is on
+    if parsed_message.is_valid or dictionary.verbose_mode:
+        formatted_output = message_parser.format_message_output(parsed_message, dictionary.peer_profiles)
+        if formatted_output.strip():  # Only print non-empty output
+            print(formatted_output)
     
     # Debug output for invalid messages
     if not parsed_message.is_valid:
-        print(f">> [WARNING] Invalid message received from {sender_ip}\n")
+        print(f">> [WARNING] Invalid message received from {sender_ip}")
         if dictionary.verbose_mode:
             print(parsed_message.to_debug_string())
 
 def handle_profile_message(message):
+    """
+    Handle PROFILE messages according to RFC specifications.
+    Validates IP address against USER_ID and manages peer discovery.
+    """
     user_id = message.fields.get("USER_ID")
     display_name = message.fields.get("DISPLAY_NAME")
     status = message.fields.get("STATUS", "")
     
-    if user_id and display_name:
-        # Validate IP matches USER_ID
-        try:
-            claimed_ip = user_id.split('@')[1]
-            if claimed_ip != message.sender_ip:
-                print(f">> [WARNING] IP mismatch: USER_ID claims {claimed_ip} but sent from {message.sender_ip}")
-                return
-        except IndexError:
-            print(f">> [WARNING] Invalid USER_ID format: {user_id}")
+    # Check if required fields are present
+    if not user_id or not display_name:
+        if dictionary.verbose_mode:
+            print(f">> [WARNING] Invalid PROFILE message: missing USER_ID or DISPLAY_NAME from {message.sender_ip}")
+        return
+    
+    # Validate IP matches USER_ID according to RFC Section 14 (Security Considerations)
+    # "peers should verify the source IP address by comparing the FROM field declared 
+    # in each message with the actual IP address from which the UDP packet was received"
+    try:
+        claimed_ip = user_id.split('@')[1]
+        if claimed_ip != message.sender_ip:
+            print(f">> [WARNING] IP mismatch: USER_ID claims {claimed_ip} but sent from {message.sender_ip} (will not be saved as a peer)\n")
+            # RFC says to "log for auditing purposes or silently discard"
+            # We're logging but not saving to peer_profiles (not adding to known peers)
             return
+    except IndexError:
+        print(f">> [WARNING] Invalid USER_ID format: {user_id} (will not be saved as a peer)\n")
+        return
+    
+    # Only save to peer_profiles if validation passes
+    # Check if this is a new peer or existing peer
+    if user_id in dictionary.peer_profiles:
+        old_display_name, old_ip, old_status = dictionary.peer_profiles[user_id]
         
-        # Check if this is a new peer or existing peer
-        if user_id in dictionary.peer_profiles:
-            old_display_name, old_ip, old_status = dictionary.peer_profiles[user_id]
-            
-            # Note: old_ip should always equal message.sender_ip for valid messages
-            name_changed = display_name != old_display_name
-            status_changed = status != old_status
-            
-            if not name_changed and not status_changed:
-                print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile\n")
-            else:
-                changes = []
-                if name_changed:
-                    changes.append(f"name: '{old_display_name}' → '{display_name}'")
-                if status_changed:
-                    changes.append(f"status: '{old_status}' → '{status}'")
-                
-                change_desc = ", ".join(changes)
-                print(f">> [LOG] {display_name} ({user_id}) updated profile ({change_desc})\n")
+        # Note: old_ip should always equal message.sender_ip for valid messages
+        name_changed = display_name != old_display_name
+        status_changed = status != old_status
+        
+        if not name_changed and not status_changed:
+            print(f">> [LOG] {display_name} ({user_id}) sent duplicate profile")
         else:
-            print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}\n")
-        
-        # Update the peer profiles dictionary
-        dictionary.peer_profiles[user_id] = (display_name, message.sender_ip, status)
+            changes = []
+            if name_changed:
+                changes.append(f"name: '{old_display_name}' → '{display_name}'")
+            if status_changed:
+                changes.append(f"status: '{old_status}' → '{status}'")
+            
+            change_desc = ", ".join(changes)
+            print(f">> [LOG] {display_name} ({user_id}) updated profile ({change_desc})")
+    else:
+        print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}")
+    
+    # Update the peer profiles dictionary (only if validation passed)
+    dictionary.peer_profiles[user_id] = (display_name, message.sender_ip, status)
 
 # ====== Legacy functions (kept for backward compatibility)
 def parse_profile_message(message):
