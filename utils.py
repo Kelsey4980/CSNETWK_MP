@@ -2,11 +2,13 @@
 import secrets
 import dictionary
 import time
-from message_parser import MessageParser, MessageType
+from message_parser import MessageParser, MessageType, ParsedMessage
+from typing import Optional
 
 class UtilsManager:
     """
     Manager class for LSNP utilities with encapsulated message parser
+    Focused on real-time message processing without storage
     """
     def __init__(self):
         self.message_parser = MessageParser(verbose_mode=dictionary.verbose_mode)
@@ -20,14 +22,25 @@ class UtilsManager:
         self.message_parser.verbose_mode = dictionary.verbose_mode
     
     # ====== Message Processing
-    def process_message(self, raw_message: str, sender_ip: str) -> None:
+    def process_message(self, raw_message: str, sender_ip: str) -> Optional[ParsedMessage]:
         """Process incoming message using the message parser"""
         self.update_verbose_mode()
-        
+
         # Parse the message
         parsed_message = self.message_parser.parse_message(raw_message, sender_ip)
         
+        # --- NEW: Check if parsing failed immediately ---
+        if parsed_message is None:
+            # If the parser returned None, it means it was fundamentally unparseable.
+            # We don't try to process it further in this function.
+            # The calling peer will handle the "could not parse" error.
+            if dictionary.verbose_mode:
+                print(f">> [DEBUG - Utils] Message from {sender_ip} was not parsed successfully by MessageParser. Returning None.")
+            return None
+        # --- END NEW ---
+
         # Handle PROFILE messages for peer discovery
+        # Now we can safely access parsed_message.message_type because it's not None
         if parsed_message.message_type == MessageType.PROFILE:
             self._handle_profile_message(parsed_message)
         
@@ -37,17 +50,21 @@ class UtilsManager:
             if formatted_output.strip():
                 print(formatted_output)
         
-        # Debug output for invalid messages
-        if not parsed_message.is_valid:
-            print(f">> [WARNING] Invalid message received from {sender_ip}")
-            if dictionary.verbose_mode:
-                print(parsed_message.to_debug_string())
+        # Debug output for invalid messages (if is_valid is False but it wasn't None)
+        # This condition is now redundant IF parse_message truly returns None for all invalid cases.
+        # However, it's safer to keep it if there are "soft" invalidations where ParsedMessage object is still returned.
+        # Based on your latest message_parser.py, it will return None for invalid, so this `if not parsed_message.is_valid`
+        # block will likely not be hit anymore if the message *was* ParsedMessage and also invalid.
+        # But for robustness, it doesn't hurt.
+        if not parsed_message.is_valid and dictionary.verbose_mode: # Only print this if verbose
+            print(f">> [WARNING] Invalid message received from {sender_ip} (validation failed after parsing).")
+            print(parsed_message.to_debug_string())
+        
+        return parsed_message # Return the ParsedMessage object
     
     def _handle_profile_message(self, message):
         """Handle PROFILE messages according to RFC specifications"""
         user_id = message.fields.get("USER_ID")
-        print(f"[DEBUG] PROFILE handler was called for {user_id} from {message.sender_ip}")
-        
         display_name = message.fields.get("DISPLAY_NAME")
         status = message.fields.get("STATUS", "")
         
@@ -89,72 +106,6 @@ class UtilsManager:
             print(f">> [LOG] New peer {display_name} ({user_id}) joined from IP {message.sender_ip}\n")
         
         dictionary.peer_profiles[user_id] = (display_name, message.sender_ip, status)
-    
-    # ====== Message History and Statistics
-    def list_all_profiles(self):
-        """List all stored profile messages"""
-        profiles = self.message_parser.get_messages_by_type(MessageType.PROFILE)
-        if not profiles:
-            print("No profile messages found.\n")
-            return
-        
-        print("\n--- All Profile Messages ---")
-        for profile in profiles:
-            display_name = profile.fields.get("DISPLAY_NAME", "Unknown")
-            user_id = profile.fields.get("USER_ID", "Unknown")
-            status = profile.fields.get("STATUS", "")
-            timestamp = profile.timestamp
-            print(f"[{time.ctime(timestamp)}] {display_name} ({user_id}): {status}")
-        print("---------------------------\n")
-    
-    def list_all_posts(self):
-        """List all stored posts"""
-        posts = self.message_parser.get_messages_by_type(MessageType.POST)
-        if not posts:
-            print("No posts found.\n")
-            return
-        
-        print("\n--- All Posts ---")
-        for post in posts:
-            display_name = post.get_display_name(dictionary.peer_profiles)
-            content = post.fields.get("CONTENT", "")
-            timestamp = post.timestamp
-            print(f"[{time.ctime(timestamp)}] {display_name}: {content}")
-        print("-----------------\n")
-    
-    def list_posts_by_user(self, user_id: str):
-        """List all posts by a specific user"""
-        posts = self.message_parser.get_posts_by_user(user_id)
-        if not posts:
-            print(f"No posts found for user {user_id}\n")
-            return
-        
-        display_name = posts[0].get_display_name(dictionary.peer_profiles)
-        print(f"\n--- Posts by {display_name} ---")
-        for post in posts:
-            content = post.fields.get("CONTENT", "")
-            timestamp = post.timestamp
-            print(f"[{time.ctime(timestamp)}] {content}")
-        print("-" * (len(display_name) + 15) + "\n")
-    
-    def list_dms_by_user(self, user_id: str):
-        """List all DMs from a specific user"""
-        dms = self.message_parser.get_dms_by_user(user_id)
-        if not dms:
-            print(f"No DMs found from user {user_id}\n")
-            return
-        
-        display_name = dms[0].get_display_name(dictionary.peer_profiles)
-        print(f"\n--- DMs from {display_name} ---")
-        for dm in dms:
-            content = dm.fields.get("CONTENT", "")
-            timestamp = dm.timestamp
-            print(f"[{time.ctime(timestamp)}] {content}")
-        print("-" * (len(display_name) + 15) + "\n")
-    
-    def get_message_statistics(self):
-        """Get statistics about stored messages"""
-        self.message_parser.print_all_messages_summary()
 
 # Create global instance
 utils_manager = UtilsManager()
@@ -195,41 +146,41 @@ def store_IP(ip_address):
         print(f">> [LOG] New IP ({ip_address}) saved!\n")
 
 # ====== Message Processing Interface
-def process_message(raw_message: str, sender_ip: str) -> None:
+def process_message(raw_message: str, sender_ip: str) -> Optional[ParsedMessage]:
     """Process incoming message - delegates to utils_manager"""
-    utils_manager.process_message(raw_message, sender_ip)
+    return utils_manager.process_message(raw_message, sender_ip) # Ensure it returns what utils_manager.process_message returns
 
-# ====== Message History Interface
-def list_all_profiles():
-    """List all stored profile messages"""
-    utils_manager.list_all_profiles()
-
-def list_all_posts():
-    """List all stored posts"""
-    utils_manager.list_all_posts()
-
-def list_posts_by_user(user_id: str):
-    """List all posts by a specific user"""
-    utils_manager.list_posts_by_user(user_id)
-
-def list_dms_by_user(user_id: str):
-    """List all DMs from a specific user"""
-    utils_manager.list_dms_by_user(user_id)
-
+# ====== Statistics Functions (Real-time counters)
 def get_message_statistics():
-    """Get statistics about stored messages"""
-    utils_manager.get_message_statistics()
+    """Get statistics about message processing"""
+    parser = utils_manager.get_parser()
+    
+    print("\n--- Message Statistics ---")
+    print(f"Messages processed this session: {parser.get_processed_count()}")
+    print(f"Invalid messages received: {parser.get_invalid_count()}")
+    print(f"Known peers: {len(dictionary.peer_profiles)}")
+    print(f"Known IPs: {len(dictionary.peers_IP)}")
+    print("-------------------------\n")
 
 # ====== Display Functions
 def print_known_peers(peer_profiles):
     """Print all known peers"""
+    if not peer_profiles:
+        print("\n--- No Known Peers ---\n")
+        return
+        
     print("\n--- Known Peers ---")
     for user_id, (name, ip, status) in peer_profiles.items():
-        print(f"{name} ({user_id}) @ {ip}: {status}")
+        status_text = f": {status}" if status else ""
+        print(f"{name} ({user_id}) @ {ip}{status_text}")
     print("-------------------\n")
 
 def print_saved_ip(peers_IP):
     """Print all saved IP addresses"""
+    if not peers_IP:
+        print("\n--- No Known IPs ---\n")
+        return
+        
     print("\n--- Known IPs ---")
     for ip in peers_IP.keys():
         print(f"{ip}")
