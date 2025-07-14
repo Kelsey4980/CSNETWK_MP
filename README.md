@@ -59,5 +59,6 @@
 
 # TODO: 
 - implement different known peers display (so that even ping will be registered to known peers; currently only profile messages save to peer because of tuple defn)
+- should we implement a way for the lsnp to know if it's a new peer so that they would send back their profile/ping? (idt needed nor efficient though, check RFC probably)
 - improve verbose and non-verbose display (refer to the RFC for non-verbose)
 - implement other message features (probably unfollow next)
