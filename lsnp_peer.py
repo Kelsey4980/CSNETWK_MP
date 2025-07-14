@@ -189,12 +189,6 @@ class LSNPPeer:
                 if sender_user_id == self.user_id:
                     continue # Skip our own broadcast
 
-                # If the message is from localhost, but the user isn't us,
-                # it's another local peer's localhost-specific broadcast.
-                # We can safely ignore it because we'll get their main network broadcast.
-                if addr[0] == '127.0.0.1':
-                    return # Silently ignore
-
                 log_IP(addr[0])
 
                 print("\n========== >> DISCOVERY MESSAGE << ==========\n")
