@@ -32,17 +32,20 @@ class LSNPMessage:
     def validate_token(self) -> bool:
         """Validate token structure and expiration with better error handling"""
         if "TOKEN" not in self.fields:
+            print(f"[DEBUG] Token check: No TOKEN field for {self.message_type.value}")
             return True  # Not all messages require tokens
         
         token = self.fields["TOKEN"]
         if not token:
             self.validation_errors.append("Empty token field")
+            print(f"[DEBUG] Token check: Empty token for {self.message_type.value}")
             return False
             
         try:
             parts = token.split('|')
             if len(parts) != 3:
                 self.validation_errors.append(f"Invalid token format: expected 3 parts, got {len(parts)}")
+                print(f"[DEBUG] Token check: Invalid token format '{token}'")
                 return False
             
             user_id, expiry_str, scope = parts
@@ -50,11 +53,13 @@ class LSNPMessage:
             # Validate user_id format
             if not user_id or '@' not in user_id:
                 self.validation_errors.append("Invalid user_id format in token")
+                print(f"[DEBUG] Token check: Invalid token format '{token}'")
                 return False
             
             # Validate expiry is numeric
             if not expiry_str.isdigit():
                 self.validation_errors.append("Token expiry must be numeric")
+                print(f"[DEBUG] Token check: Expiry not numeric '{expiry_str}'")
                 return False
                 
             expiry = int(expiry_str)
@@ -62,12 +67,14 @@ class LSNPMessage:
             # Check if token is expired
             if time.time() > expiry:
                 self.validation_errors.append("Token expired")
+                print(f"[DEBUG] Token check: Token EXPIRED for {self.message_type.value}. Current time: {time.time()}, Expiry: {expiry}")
                 return False
                 
             # Validate scope according to RFC
             valid_scopes = ["chat", "file", "broadcast", "follow", "game", "group", "direct"]
             if scope not in valid_scopes:
                 self.validation_errors.append(f"Invalid token scope: {scope}")
+                print(f"[DEBUG] Token check: Invalid scope '{scope}'")
                 return False
                 
             return True

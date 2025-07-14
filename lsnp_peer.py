@@ -203,7 +203,6 @@ class LSNPPeer:
         try:
             profile_msg = self.message_builder.build_profile(self.status)
             self.discovery_sock.sendto(profile_msg.encode(), (self.BROADCAST_IP, self.DISCOVERY_PORT))
-            self.discovery_sock.sendto(profile_msg.encode(), ('127.0.0.1', self.DISCOVERY_PORT))
         except Exception as e:
             print(f"Error broadcasting profile: {e}")
     
@@ -434,7 +433,7 @@ def main():
     # Parse command line arguments for username and display name
     username = None
     display_name = None
-    
+
     if "--username" in sys.argv:
         try:
             user_idx = sys.argv.index("--username")
