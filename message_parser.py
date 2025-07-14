@@ -208,13 +208,12 @@ class MessageParser:
             msg_type = message.message_type
             
             if msg_type == MessageType.PROFILE:
-                # profile: Show only the display_name and status
                 display_name = message.fields.get("DISPLAY_NAME")
                 status = message.fields.get("STATUS", "N/A")
-                if not display_name: # Fallback if DISPLAY_NAME is not present in the PROFILE message
+                if not display_name:
                     user_id = message.fields.get("USER_ID", "Unknown")
                     display_name = user_id.split('@')[0] if '@' in user_id else user_id
-                return ""
+                return f"{timestamp_str} {display_name}: {status}"
             
             elif msg_type == MessageType.POST:
                 # post: Show only the display_name (user_id if display name is not recorded) and content.
