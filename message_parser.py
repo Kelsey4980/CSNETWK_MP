@@ -141,6 +141,11 @@ class MessageParser:
         if (message.validate_token() and "MESSAGE_ID" in fields) or message.message_type == MessageType.PROFILE:
             # Use a fallback ID for PROFILE messages without MESSAGE_ID
             storage_id = fields.get("MESSAGE_ID", f"profile_{message.sender_ip}_{int(message.timestamp)}")
+            
+            if storage_id in self.message_storage:
+                if self.verbose_mode:
+                    print(f">> [INFO] Duplicate message detected for ID: {storage_id}. Overwriting existing entry.\n")
+            
             self.message_storage[storage_id] = message
             
         return message
