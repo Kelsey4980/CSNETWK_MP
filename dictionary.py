@@ -35,3 +35,4 @@ class MessageType(Enum):
     ACK = "ACK"
     PING = "PING"
     REVOKE = "REVOKE"
+    UNKNOWN = "UNKNOWN"
