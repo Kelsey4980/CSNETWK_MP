@@ -68,12 +68,20 @@ class LSNPPeer:
         except Exception:
             return "127.0.0.1"
 
+    # ✅
     def start(self):
         """Start the peer"""
         self.running = True
         threading.Thread(target=self._listen_loop, daemon=True).start()
-        #threading.Thread(target=self._discovery_loop, daemon=True).start()
 
+    # ✅
+    def stop(self):
+        """Stop the peer"""
+        self.running = False
+        self.sock.close()
+        print("Peer left.")
+
+    # ✅
     def _listen_loop(self):
         """Main listening loop"""
         while self.running:
@@ -90,11 +98,11 @@ class LSNPPeer:
                 # Extract sender user_id from FROM or USER_ID ✅
                 sender_user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
 
-                # Skip message from self: same IP and same user ID
+                # Skip message from self: same IP and same user ID ✅
                 if addr[0] == self.local_ip and sender_user_id == self.user_id:
                     continue
 
-                # Process and ACK
+                # Process and ACK 
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
                     continue
@@ -118,6 +126,171 @@ class LSNPPeer:
                 if self.running:
                     print(f"Error in listener: {e}")
 
+    # ✅
+    def _update_peer_info(self, user_id, display_name, ip, status=""):
+        """Update peer information and log updates conditionally."""
+        current_time = time.time()
+
+        # Skip if it's our own user_id
+        if user_id == self.user_id:
+            # self.known_peers[user_id] = (display_name, ip, status, current_time)
+            return
+
+        if user_id in self.known_peers:
+            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+
+            name_changed = display_name != old_display_name
+            status_changed = status != old_status
+            ip_changed = ip != old_ip
+
+            if name_changed or status_changed or ip_changed:
+                if self.verbose:
+                    display_manager.log_peer_update(
+                        user_id, display_name, old_display_name, status, old_status, self.verbose
+                    )
+            elif self.verbose:
+                display_manager.log_peer_update(
+                    user_id, display_name, old_display_name, status, old_status, self.verbose
+                )
+        else:
+            if self.verbose:
+                display_manager.log_new_peer(display_name, user_id, ip)
+
+        self.known_peers[user_id] = (display_name, ip, status, current_time)
+
+    # ✅
+    def _handle_profile_message(self, parsed_message):
+        """Handle PROFILE messages for peer discovery"""
+        user_id = parsed_message.fields.get("USER_ID")
+        display_name = parsed_message.fields.get("DISPLAY_NAME")
+        status = parsed_message.fields.get("STATUS", "")
+        
+        if not user_id or not display_name:
+            if self.verbose:
+                display_manager.log_warning(f"Invalid PROFILE message: missing USER_ID or DISPLAY_NAME from {parsed_message.sender_ip}")
+            return
+        
+        # Validate IP matches USER_ID
+        try:
+            claimed_ip = user_id.split('@')[1]
+            if claimed_ip != parsed_message.sender_ip:
+                if self.verbose: # Log IP mismatch only in verbose
+                    display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {parsed_message.sender_ip}")
+                return
+        except IndexError:
+            if self.verbose: # Log invalid USER_ID format only in verbose
+                display_manager.log_warning(f"Invalid USER_ID format: {user_id}")
+            return
+        
+        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
+
+    # ✅
+    def _get_peer_profiles_dict(self):
+        """Convert internal peer storage to expected format for message parser"""
+        return {
+            user_id: (display_name, ip, status)
+            for user_id, (display_name, ip, status, _) in self.known_peers.items()
+        }
+    
+    # ✅
+    def _process_message(self, raw_message, sender_ip):
+        """Process incoming message"""
+        self.stats['messages_processed'] += 1
+        
+        # Parse the message
+        parsed_message = self.message_parser.parse_message(raw_message, sender_ip)
+        
+        if parsed_message is None:
+            self.stats['invalid_messages'] += 1
+            # Debug log for parser failure is already handled by message_parser if verbose
+            return None
+        
+        # Handle PROFILE messages for peer discovery (updates known_peers)
+        if parsed_message.message_type == MessageType.PROFILE:
+            self._handle_profile_message(parsed_message)
+        
+        # Display formatted output for valid messages
+        formatted_output = self.message_parser.format_message_output(
+            parsed_message, self._get_peer_profiles_dict(), self.verbose
+        )
+
+        if formatted_output.strip(): # Only print if there's actual content to display
+            # Print general message header/footer only in verbose mode
+            if self.verbose:
+                display_manager.print_message_header()
+                print(formatted_output)
+                display_manager.print_message_footer()
+            else:
+                # In non-verbose, print direct messages (POST, DM, FOLLOW) without borders
+                # The format_message_output should return empty string for silent types (ACK, PING, PROFILE)
+                print(formatted_output)
+
+        # Debug output for invalid messages
+        if not parsed_message.is_valid and self.verbose:
+            display_manager.log_warning(f"Invalid message received from {sender_ip} (validation failed after parsing).")
+            print(parsed_message.to_debug_string())
+        
+        return parsed_message
+
+    def handle_command(self, cmd):
+        """Handle user commands"""
+        parts = cmd.strip().split()
+        if not parts:
+            return
+        
+        cmd = parts[0].lower()
+        
+        if cmd == "peers":
+            display_manager.print_known_peers(self.known_peers)
+        elif cmd == "ips":
+            display_manager.print_known_ips(self.known_ips)
+        elif cmd == "post":
+            content = ' '.join(parts[1:]) if len(parts) > 1 else ""
+            self.send_post(content)
+        elif cmd == "dm":
+            if len(parts) > 2:
+                target_user = parts[1]
+                content = ' '.join(parts[2:])
+                self.send_dm(target_user, content)
+            else:
+                print("Usage: dm <user_id> <message>")
+        elif cmd == "follow":
+            if len(parts) > 1:
+                self.send_follow(parts[1])
+            else:
+                print("Usage: follow <user_id>")
+        elif cmd == "ping":
+            target_uid = parts[1] if len(parts) > 1 else None
+            self.send_ping(target_uid)
+        elif cmd == "broadcast":
+            self.broadcast_profile()
+            print("Profile broadcast sent")
+        elif cmd == "status":
+            if len(parts) > 1:
+                self.status = ' '.join(parts[1:])
+                self.broadcast_profile()
+                print(f"Status updated to: {self.status}")
+            else:
+                print(f"Current status: {self.status}")
+        elif cmd == "info":
+            display_manager.print_peer_info(self.user_id, self.display_name, self.local_ip, 
+                                            self.status, len(self.known_peers), len(self.known_ips), self.verbose)
+        elif cmd == "following":
+            display_manager.print_following_list(self.following)
+        elif cmd == "verbose":
+            self.verbose = not self.verbose
+            self.message_parser.verbose_mode = self.verbose # Update parser's verbose mode
+            print(f"Verbose mode: {'ON' if self.verbose else 'OFF'}")
+        elif cmd == "stats":
+            display_manager.print_statistics(self.stats, len(self.known_peers), len(self.known_ips))
+        elif cmd in ["exit", "quit"]:
+            self.stop()
+            sys.exit(0)
+        elif cmd == "help":
+            display_manager.print_help()
+        else:
+            print(f"Unknown command: {cmd}. Type 'help' for available commands.")
+            
 def main():
     """Main function - parse arguments and start peer"""
     username = None
