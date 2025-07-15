@@ -8,8 +8,8 @@ from message_builder import MessageBuilder
 from message_parser import MessageParser, MessageType
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
-import dictionary  # Only for verbose_mode and MessageType
-from utils import display_manager, generate_message_id
+import dictionary  # Only for MessageType
+from utils import display_manager
 
 class LSNPPeer:
     """

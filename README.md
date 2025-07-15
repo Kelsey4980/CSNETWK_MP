@@ -59,6 +59,20 @@
 
 # TODO: 
 - implement different known peers display (so that even ping will be registered to known peers; currently only profile messages save to peer because of tuple defn)
+- implement POST to followers only (currently broadcasted)
 - should we implement a way for the lsnp to know if it's a new peer so that they would send back their profile/ping? (idt needed based on RFC though)
 - improve verbose and non-verbose display (refer to the RFC for non-verbose)
 - implement other message features (probably unfollow next)
+
+# GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
+1. Check message implementation in message_builder (i.e., fields)
+2. Create a send_<type> method in peer class
+3. Update message_parser given new type
+4. Update handle_command (in peer class) and print_help (in utils) if needed
+5. Test!
+
+# OTHER NOTES FROM HANIELLE:
+- debugged the peer class because there were wrong calls to send_message_to_peer, so we will officially depracate lsnp_peer (my old ver lsnp_peer)
+- also added a new method for handle_log and handle_profile_message (validate_user_id_and_ip)
+- cleaned up the codebase, removed unused code in utils and dictionary
+- last! i added a last seen for each known peer, this will make it easier to debug in the future when we implement "staling" of peers

@@ -72,9 +72,10 @@ class DisplayManager:
             return
 
         print("\n--- Known Peers ---")
-        for user_id, (display_name, ip, status, _) in known_peers.items():
+        for user_id, (display_name, ip, status, last_seen) in known_peers.items():
+            last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen))
             status_text = f": {status}" if status else ""
-            print(f"{display_name} ({user_id}) @ {ip}{status_text}")
+            print(f"{display_name} ({user_id}) @ {ip}{status_text} | Last seen: {last_seen_str}")
         print("-------------------\n")
 
     def print_known_ips(self, known_ips: Set[str]):
@@ -149,64 +150,3 @@ class DisplayManager:
 
 # Create global display manager instance
 display_manager = DisplayManager()
-
-# ====== Utility Functions
-def generate_message_id() -> str:
-    """Generate a unique message ID"""
-    return secrets.token_hex(8)
-
-def extract_message_id(message: str) -> Optional[str]:
-    """Extract message ID from raw message string"""
-    for line in message.strip().split('\n'):
-        if line.startswith("MESSAGE_ID:"):
-            return line.split(':', 1)[1].strip()
-    return None
-
-def extract_message_type(message: str) -> Optional[str]:
-    """Extract message type from raw message string"""
-    for line in message.strip().split('\n'):
-        if line.startswith("TYPE:"):
-            return line.split(":", 1)[1].strip()
-    return None
-
-def validate_user_id_format(user_id: str) -> bool:
-    """Validate user ID format (username@ip)"""
-    try:
-        parts = user_id.split('@')
-        return len(parts) == 2 and parts[0] and parts[1]
-    except:
-        return False
-
-def validate_ip_address(ip: str) -> bool:
-    """Basic IP address validation"""
-    try:
-        parts = ip.split('.')
-        return len(parts) == 4 and all(0 <= int(part) <= 255 for part in parts)
-    except:
-        return False
-
-# ====== Legacy compatibility functions (can be removed if not used elsewhere)
-def log_IP(ip_address: str):
-    """Legacy function - use display_manager.log_received_message instead"""
-    display_manager.log_received_message(ip_address)
-
-def store_IP(ip_address: str):
-    """Legacy function - use LSNPPeer internal storage instead"""
-    display_manager.log_new_ip(ip_address)
-
-def print_known_peers(peer_profiles: dict):
-    """Legacy function - use display_manager.print_known_peers instead"""
-    # Convert legacy format to new format
-    known_peers = {}
-    for user_id, (display_name, ip, status) in peer_profiles.items():
-        known_peers[ip] = (user_id, display_name, status, time.time())
-    display_manager.print_known_peers(known_peers)
-
-def print_saved_ip(peers_IP: dict):
-    """Legacy function - use display_manager.print_known_ips instead"""
-    display_manager.print_known_ips(set(peers_IP.keys()))
-
-def get_message_statistics():
-    """Legacy function - use display_manager.print_statistics instead"""
-    stats = {'messages_processed': 0, 'messages_sent': 0, 'invalid_messages': 0}
-    display_manager.print_statistics(stats, 0, 0)

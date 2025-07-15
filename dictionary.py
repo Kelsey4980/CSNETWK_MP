@@ -1,20 +1,5 @@
 from enum import Enum
 
-# store all IP addresses that entered the server
-peers_IP = {}
-
-# map USER_ID to (DISPLAY_NAME, IP, STATUS)
-peer_profiles = {}
-
-# verbose mode
-verbose_mode = False
-
-# port - changed from 50999 to avoid conflict with discovery port
-port = 51000
-
-# ttl
-ttl = 3600
-
 class MessageType(Enum):
     """Enumeration of all LSNP message types"""
     PROFILE = "PROFILE"

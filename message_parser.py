@@ -1,7 +1,3 @@
-"""
-LSNP Message Parser - Updated Core Types
-Parses and validates core LSNP message types according to RFC specifications
-"""
 import time
 from enum import Enum
 from typing import Dict, Optional, List, Tuple
