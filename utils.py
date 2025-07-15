@@ -59,7 +59,7 @@ class DisplayManager:
     # They will be directly printed in lsnp_peer.py based on verbose mode
     def print_message_header(self):
         """Print message received header"""
-        print("\n============ >> MESSAGE RECEIVED << ============")
+        print("\n============ >> START OF MESSAGE << ============")
     
     def print_message_footer(self):
         """Print message received footer"""

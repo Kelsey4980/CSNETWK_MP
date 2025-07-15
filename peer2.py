@@ -42,6 +42,7 @@ class LSNPPeer:
         self.known_ips = set()
         self.following = set()
         self.followers = set()
+        self.dms = {}
         self.running = False
         self.verbose = verbose
         
@@ -73,6 +74,7 @@ class LSNPPeer:
         """Start the peer"""
         self.running = True
         threading.Thread(target=self._listen_loop, daemon=True).start()
+        self.broadcast_profile()
 
     # ✅
     def stop(self):
@@ -99,7 +101,8 @@ class LSNPPeer:
                 sender_user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
 
                 # Skip message from self: same IP and same user ID ✅
-                if addr[0] == self.local_ip and sender_user_id == self.user_id:
+                # if addr[0] == self.local_ip and sender_user_id == self.user_id:
+                if sender_user_id == self.user_id:
                     continue
 
                 # Process and ACK 
@@ -109,6 +112,10 @@ class LSNPPeer:
 
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
+
+                # log the peers who made a broadcast
+                print(parsed_message.fields)
+                self._handle_log(parsed_message)
 
                 no_ack_types = {
                     MessageType.ACK,
@@ -126,14 +133,47 @@ class LSNPPeer:
                 if self.running:
                     print(f"Error in listener: {e}")
 
+    # TO DO: logging for verbose
+    def _handle_log(self, parsed_message):
+        msg_type = parsed_message.message_type
+        if msg_type != MessageType.PROFILE:
+            return
+
+        msg_user_id = parsed_message.fields.get("USER_ID")
+        msg_display_name = parsed_message.fields.get("DISPLAY_NAME")
+        msg_status = parsed_message.fields.get("STATUS")
+        msg_ip = msg_user_id.split("@", 1)[1]
+
+        self._log_peer(msg_display_name, msg_user_id, msg_ip, msg_status)
+        self._log_ip(msg_ip)
+
+    # TO DO: logging for verbose
+    def _log_peer(self, msg_display_name, msg_user_id, msg_ip, msg_status,):
+        """Logs the peers that entered the server"""
+        current_time = time.time
+
+        if msg_user_id != self.user_id:
+            self.known_peers[msg_user_id] = (msg_display_name, msg_ip, msg_status, current_time)
+
+    # TO DO: logging for verbose
+    def _log_ip(self, ip_address):
+        """Log and store IP address - logging itself is now conditional on verbose"""
+        if self.verbose:
+            display_manager.log_received_message(ip_address)
+        
+        if ip_address not in self.known_ips:
+            self.known_ips.add(ip_address)
+            if self.verbose:
+                display_manager.log_new_ip(ip_address)
+
     # ✅
     def _update_peer_info(self, user_id, display_name, ip, status=""):
         """Update peer information and log updates conditionally."""
         current_time = time.time()
 
         # Skip if it's our own user_id
-        if user_id == self.user_id:
-            # self.known_peers[user_id] = (display_name, ip, status, current_time)
+        if user_id != self.user_id:
+            self.known_peers[user_id] = (display_name, ip, status, current_time)
             return
 
         if user_id in self.known_peers:
@@ -231,6 +271,118 @@ class LSNPPeer:
             print(parsed_message.to_debug_string())
         
         return parsed_message
+    
+    # ✅
+    def broadcast_profile(self):
+        """Broadcast profile to all peers"""
+        try:
+            msg = self.message_builder.build_profile(self.status)
+            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
+            self.stats['messages_sent'] += 1
+            if self.verbose: # Log broadcast profile only in verbose
+                display_manager.log_debug(f"Broadcasted profile: {self.user_id}")
+        except Exception as e:
+            print(f"Error broadcasting profile: {e}")
+
+    # ✅
+    def _find_peer_ip(self, user_id):
+        """Find IP address for a given user ID"""
+        if "@" not in user_id:
+            return user_id
+        
+        peer = self.known_peers.get(user_id)
+        return peer[1] if peer else None
+    
+    # ✅
+    def send_message_to_peer(self, user_id, message):
+        """Send a message to a specific peer using their user_id"""
+        # Look up the peer's IP address using the user_id
+        target_ip = self._find_peer_ip(user_id)
+
+        if target_ip:
+            try:
+                self.sock.sendto(message.encode(), (target_ip, self.PORT))
+                self.stats['messages_sent'] += 1
+                if self.verbose:  # Log message sent only in verbose mode
+                    display_manager.log_debug(f"Sent message to {user_id} ({target_ip})")
+            except Exception as e:
+                print(f"Error sending message to {user_id}: {e}")
+        else:
+            print(f"User {user_id} not found in known peers.")
+
+    # ✅
+    def send_post(self, content):
+        """Send a POST message to all known peers"""
+        if not content.strip():
+            print("Post content cannot be empty.")
+            return
+
+        msg = self.message_builder.build_post(content)
+
+        # TO UPDATE for MS2 :: must be in followers
+        peers_to_send_to = [uid for uid in self.known_peers if uid != self.user_id]
+        if peers_to_send_to:
+            for uid in peers_to_send_to:
+                _, ip, _, _ = self.known_peers[uid]
+                self.send_message_to_peer(ip, msg)
+        else:  # If no other peers, broadcast
+            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
+            self.stats['messages_sent'] += 1
+            if self.verbose:
+                display_manager.log_debug(f"Broadcasted POST: {content}")
+
+        print(f"Post sent: {content}")
+
+    # ✅
+    def send_dm(self, target_user_id, content):
+        """Send a DM to a specific user"""
+        if not content.strip():
+            print("DM content cannot be empty.")
+            return
+        
+        # Find target user's IP
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_dm(target_user_id, content)
+            self.send_message_to_peer(target_ip, msg)
+            print(f"DM sent to {target_user_id}: {content}")
+        else:
+            print(f"User {target_user_id} not found.")
+
+    # ✅ || TO UPDATE for MS2 :: make sure to update followers and following
+    def send_follow(self, target_user_id):
+        """Send a FOLLOW message to a specific user"""
+        if target_user_id in self.following:
+            print(f"You are already following {target_user_id}")
+            return
+        
+        target_ip = self._find_peer_ip(target_user_id)
+
+        if target_ip:
+            msg = self.message_builder.build_follow(target_user_id)
+            self.send_message_to_peer(target_ip, msg)
+            self.following.add(target_user_id)  # Add to following set
+            print(f"You are now following {target_user_id}")
+        else:
+            print(f"User {target_user_id} not found.")
+
+    def send_ping(self, target_user_id=None):
+        """Send a PING message to a specific user by user_id or broadcast if no user_id is provided"""
+        if target_user_id:
+            # Send ping to specific user by user_id
+            msg = self.message_builder.build_ping()
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"Ping sent to {target_user_id}")
+        else:
+            # If no user_id is provided, broadcast the ping
+            msg = self.message_builder.build_ping()
+            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
+            self.stats['messages_sent'] += 1
+            print("Ping broadcast sent")
+
+        if self.verbose:  # Log ping sent only in verbose mode
+            display_manager.log_debug(f"Sent PING to {target_user_id if target_user_id else 'broadcast'}")
 
     def handle_command(self, cmd):
         """Handle user commands"""
@@ -240,13 +392,17 @@ class LSNPPeer:
         
         cmd = parts[0].lower()
         
+        # ✅
         if cmd == "peers":
             display_manager.print_known_peers(self.known_peers)
+        # ✅
         elif cmd == "ips":
             display_manager.print_known_ips(self.known_ips)
+        # ✅
         elif cmd == "post":
             content = ' '.join(parts[1:]) if len(parts) > 1 else ""
             self.send_post(content)
+        # ✅
         elif cmd == "dm":
             if len(parts) > 2:
                 target_user = parts[1]
@@ -254,17 +410,21 @@ class LSNPPeer:
                 self.send_dm(target_user, content)
             else:
                 print("Usage: dm <user_id> <message>")
+        # ✅ 
         elif cmd == "follow":
             if len(parts) > 1:
                 self.send_follow(parts[1])
             else:
                 print("Usage: follow <user_id>")
+        # ✅
         elif cmd == "ping":
             target_uid = parts[1] if len(parts) > 1 else None
             self.send_ping(target_uid)
+        # ✅
         elif cmd == "broadcast":
             self.broadcast_profile()
             print("Profile broadcast sent")
+        # ✅
         elif cmd == "status":
             if len(parts) > 1:
                 self.status = ' '.join(parts[1:])
@@ -272,17 +432,22 @@ class LSNPPeer:
                 print(f"Status updated to: {self.status}")
             else:
                 print(f"Current status: {self.status}")
+        # ✅
         elif cmd == "info":
             display_manager.print_peer_info(self.user_id, self.display_name, self.local_ip, 
                                             self.status, len(self.known_peers), len(self.known_ips), self.verbose)
+        # ✅
         elif cmd == "following":
             display_manager.print_following_list(self.following)
+        # ✅
         elif cmd == "verbose":
             self.verbose = not self.verbose
             self.message_parser.verbose_mode = self.verbose # Update parser's verbose mode
             print(f"Verbose mode: {'ON' if self.verbose else 'OFF'}")
+        # ✅
         elif cmd == "stats":
             display_manager.print_statistics(self.stats, len(self.known_peers), len(self.known_ips))
+        # ✅
         elif cmd in ["exit", "quit"]:
             self.stop()
             sys.exit(0)
