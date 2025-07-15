@@ -81,9 +81,6 @@ class LSNPPeer:
                 data, addr = self.sock.recvfrom(65535)
                 message = data.decode('utf-8', errors='ignore')
 
-                print(data)
-                print(addr)
-
                 # Parse early to check if it's from self ✅
                 parsed_message = self.message_parser.parse_message(message, addr[0])
                 if parsed_message is None:
@@ -93,16 +90,9 @@ class LSNPPeer:
                 # Extract sender user_id from FROM or USER_ID ✅
                 sender_user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
 
-                print(parsed_message)
-                print(sender_user_id)
-                print(self.local_ip)
-                print(addr[0])
-
                 # Skip message from self: same IP and same user ID
                 if addr[0] == self.local_ip and sender_user_id == self.user_id:
                     continue
-
-                """self._log_ip(addr[0])
 
                 # Process and ACK
                 parsed_message = self._process_message(message, addr[0])
@@ -122,7 +112,7 @@ class LSNPPeer:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
                     if self.verbose:
-                        display_manager.log_debug(f"Sent ACK for message ID: {msg_id}")"""
+                        display_manager.log_debug(f"Sent ACK for message ID: {msg_id}")
 
             except Exception as e:
                 if self.running:
