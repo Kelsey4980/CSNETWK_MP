@@ -67,12 +67,14 @@
 # GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
 1. Check message implementation in message_builder (i.e., fields)
 2. Create a send_<type> method in peer class
-3. Update message_parser given new type
-4. Update handle_command (in peer class) and print_help (in utils) if needed
-5. Test!
+3. Possibly update process_message for an elif of message_type
+4. Update message_parser given new type
+5. Update handle_command (in peer class) and print_help (in utils) if needed
+6. Test!
 
 # OTHER NOTES FROM HANIELLE:
 - debugged the peer class because there were wrong calls to send_message_to_peer, so we will officially depracate lsnp_peer (my old ver lsnp_peer)
 - also added a new method for handle_log and handle_profile_message (validate_user_id_and_ip)
+- ping also saves to peer now
 - cleaned up the codebase, removed unused code in utils and dictionary
 - last! i added a last seen for each known peer, this will make it easier to debug in the future when we implement "staling" of peers

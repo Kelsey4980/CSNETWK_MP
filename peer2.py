@@ -237,8 +237,8 @@ class LSNPPeer:
                 display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
         else:
             # New peer with only USER_ID - store with minimal info
-            # Use username part as temporary display name
-            temp_display_name = user_id.split('@')[0] if '@' in user_id else user_id
+            # Use user_id part as temporary display name
+            temp_display_name = user_id
             self.known_peers[user_id] = (temp_display_name, ip, "", current_time)
             
             if self.verbose:
@@ -302,9 +302,14 @@ class LSNPPeer:
             # Debug log for parser failure is already handled by message_parser if verbose
             return None
         
-        # Handle PROFILE messages for peer discovery (updates known_peers)
+         # Handle different message types for peer discovery
         if parsed_message.message_type == MessageType.PROFILE:
             self._handle_profile_message(parsed_message)
+        elif parsed_message.message_type == MessageType.PING:
+            # Handle PING messages - they should update known peers too
+            user_id = parsed_message.fields.get("USER_ID")
+            if user_id and self._validate_user_id_and_ip(user_id, sender_ip):
+                self._update_peer_ping(user_id, sender_ip)
         
         # Update last seen for any message with user identification
         user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
