@@ -262,19 +262,20 @@ class LSNPPeer:
         # Use shared validation
         if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
             return
+
+        # Update peer info
+        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
+    
+    def _handle_ping_message(self, parsed_message):
+        """Handle PING messages for peer discovery"""
+        user_id = parsed_message.fields.get("USER_ID")
         
-        if not display_name:
-            if self.verbose:
-                display_manager.log_warning(f"Invalid PROFILE message: missing DISPLAY_NAME from {parsed_message.sender_ip}")
+        # Use shared validation
+        if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
             return
         
-        # Handle PING messages (USER_ID only) vs full PROFILE messages
-        if display_name:
-            # Full PROFILE message
-            self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
-        else:
-            # PING message - just update last seen time, preserve existing info
-            self._update_peer_ping(user_id, parsed_message.sender_ip)
+        # Update peer ping info (preserves existing display_name and status)
+        self._update_peer_ping(user_id, parsed_message.sender_ip)
 
     # ✅
     def _get_peer_profiles_dict(self):
@@ -301,10 +302,9 @@ class LSNPPeer:
         if parsed_message.message_type == MessageType.PROFILE:
             self._handle_profile_message(parsed_message)
         elif parsed_message.message_type == MessageType.PING:
-            # Handle PING messages - they should update known peers too
-            user_id = parsed_message.fields.get("USER_ID")
-            if user_id and self._validate_user_id_and_ip(user_id, sender_ip):
-                self._update_peer_ping(user_id, sender_ip)
+            self._handle_ping_message(parsed_message)
+
+        # Insert handlers for other message types here (e.g., for storage logic)
         
         # Update last seen for any message with user identification
         user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")

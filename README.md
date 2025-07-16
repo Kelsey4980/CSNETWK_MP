@@ -67,7 +67,8 @@
 # GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
 1. Check message implementation in message_builder (i.e., fields)
 2. Create a send_<type> method in peer class
-3. Possibly update process_message for an elif of message_type
+3. Possibly update process_message for an elif of message_type and create a _handle_<type> method (only if special processing is needed like storage/state updates)
+   - For messages or info to be stored, you may create internal states in __init__ (e.g., self.<field>)
 4. Update message_parser given new type
 5. Update handle_command (in peer class) and print_help (in utils) if needed
 6. Test!
