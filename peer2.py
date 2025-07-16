@@ -113,9 +113,6 @@ class LSNPPeer:
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
-                # log the peers who made a broadcast
-                self._handle_log(parsed_message)
-
                 no_ack_types = {
                     MessageType.ACK,
                     MessageType.PING,
@@ -132,22 +129,22 @@ class LSNPPeer:
                 if self.running:
                     print(f"Error in listener: {e}")
 
-    # ✅
-    def _handle_log(self, parsed_message):
-        msg_type = parsed_message.message_type
-        if msg_type != MessageType.PROFILE:
-            return
+    # ✅ - Commented out since it may be redundant with handle profile message
+    # def _handle_log(self, parsed_message):
+    #     msg_type = parsed_message.message_type
+    #     if msg_type != MessageType.PROFILE:
+    #         return
 
-        msg_user_id = parsed_message.fields.get("USER_ID")
-        msg_display_name = parsed_message.fields.get("DISPLAY_NAME")
-        msg_status = parsed_message.fields.get("STATUS")
-        msg_ip = msg_user_id.split("@", 1)[1]
+    #     msg_user_id = parsed_message.fields.get("USER_ID")
+    #     msg_display_name = parsed_message.fields.get("DISPLAY_NAME")
+    #     msg_status = parsed_message.fields.get("STATUS")
+    #     msg_ip = msg_user_id.split("@", 1)[1]
 
-        validated = self._validate_user_id_and_ip(msg_user_id, msg_ip)
+    #     validated = self._validate_user_id_and_ip(msg_user_id, msg_ip)
 
-        if validated:
-            self._update_peer_info(msg_user_id, msg_display_name, msg_ip, msg_status)
-            self._log_ip(msg_ip)
+    #     if validated:
+    #         self._update_peer_info(msg_user_id, msg_display_name, msg_ip, msg_status)
+    #         self._log_ip(msg_ip)
 
     # ✅
     def _log_ip(self, ip_address):
@@ -265,6 +262,9 @@ class LSNPPeer:
 
         # Update peer info
         self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
+
+        # Log the IP address
+        self._log_ip(parsed_message.sender_ip)
     
     def _handle_ping_message(self, parsed_message):
         """Handle PING messages for peer discovery"""
@@ -276,6 +276,9 @@ class LSNPPeer:
         
         # Update peer ping info (preserves existing display_name and status)
         self._update_peer_ping(user_id, parsed_message.sender_ip)
+
+        # Log the IP address
+        self._log_ip(parsed_message.sender_ip)
 
     # ✅
     def _get_peer_profiles_dict(self):
