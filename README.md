@@ -57,12 +57,13 @@
       - Token validation with expiration and scope checking.
       - Debug output for invalid messages and parsing errors.
 
-# TODO: 
-- implement different known peers display (so that even ping will be registered to known peers; currently only profile messages save to peer because of tuple defn)
+# TODO for MS2: 
+- implement username and display name update commands (currently only status is updated)
 - implement POST to followers only (currently broadcasted)
-- should we implement a way for the lsnp to know if it's a new peer so that they would send back their profile/ping? (idt needed based on RFC though)
+- implement discovery loop (use origin lsnp_peer as sample)
 - improve verbose and non-verbose display (refer to the RFC for non-verbose)
-- implement other message features (probably unfollow next)
+- implement other message features (starting from follow)
+- implement retries
 
 # GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
 1. **message_builder.py**: Implement build_<type>() method with required fields if not yet in file
@@ -77,9 +78,8 @@
 7. **utils.py**: Update print_help() if new command added
 8. **Test!**
 
-# OTHER NOTES FROM HANIELLE:
-- debugged the peer class because there were wrong calls to send_message_to_peer, so we will officially depracate lsnp_peer (my old ver lsnp_peer)
-- also added a new method for handle_log and handle_profile_message (validate_user_id_and_ip)
-- ping also saves to peer now
+# OTHER NOTES:
+- also added a new method for handle_log and handle_profile_message (validate_user_id_and_ip) for security (RFC Section 14)
+- ping also saves to known peers now
 - cleaned up the codebase, removed unused code in utils and dictionary
-- last! i added a last seen for each known peer, this will make it easier to debug in the future when we implement "staling" of peers
+- added a last seen for each known peer, this will make it easier to debug in the future when we implement "staling" of peers
