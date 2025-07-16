@@ -65,13 +65,17 @@
 - implement other message features (probably unfollow next)
 
 # GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
-1. Check message implementation in message_builder (i.e., fields)
-2. Create a send_<type> method in peer class
-3. Possibly update process_message for an elif of message_type and create a _handle_<type> method (only if special processing is needed like storage/state updates)
-   - For messages or info to be stored, you may create internal states in __init__ (e.g., self.<field>)
-4. Update message_parser given new type
-5. Update handle_command (in peer class) and print_help (in utils) if needed
-6. Test!
+1. **message_builder.py**: Implement build_<type>() method with required fields if not yet in file
+2. **peer.py**: Add send_<type>() method to send the message
+3. **message_parser.py**: Add validation rules for the new type in _validate_message()
+4. **peer.py**: Add _handle_<type>_message() method IF you need special processing:
+   - Storage (add self.<storage> in __init__)
+   - State updates (followers, etc.)
+   - Can skip this step for simple display-only messages
+5. **peer.py**: Update _process_message() to call your handler (if created)
+6. **peer.py**: Add command in handle_command() if user-triggered
+7. **utils.py**: Update print_help() if new command added
+8. **Test!**
 
 # OTHER NOTES FROM HANIELLE:
 - debugged the peer class because there were wrong calls to send_message_to_peer, so we will officially depracate lsnp_peer (my old ver lsnp_peer)
