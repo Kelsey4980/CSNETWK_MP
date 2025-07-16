@@ -128,24 +128,7 @@ class LSNPPeer:
             except Exception as e:
                 if self.running:
                     print(f"Error in listener: {e}")
-
-    # ✅ - Commented out since it may be redundant with handle profile message
-    # def _handle_log(self, parsed_message):
-    #     msg_type = parsed_message.message_type
-    #     if msg_type != MessageType.PROFILE:
-    #         return
-
-    #     msg_user_id = parsed_message.fields.get("USER_ID")
-    #     msg_display_name = parsed_message.fields.get("DISPLAY_NAME")
-    #     msg_status = parsed_message.fields.get("STATUS")
-    #     msg_ip = msg_user_id.split("@", 1)[1]
-
-    #     validated = self._validate_user_id_and_ip(msg_user_id, msg_ip)
-
-    #     if validated:
-    #         self._update_peer_info(msg_user_id, msg_display_name, msg_ip, msg_status)
-    #         self._log_ip(msg_ip)
-
+                    
     # ✅
     def _log_ip(self, ip_address):
         """Log and store IP address - logging itself is now conditional on verbose"""
