@@ -114,7 +114,6 @@ class LSNPPeer:
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
                 # log the peers who made a broadcast
-                print(parsed_message.fields)
                 self._handle_log(parsed_message)
 
                 no_ack_types = {
@@ -133,7 +132,7 @@ class LSNPPeer:
                 if self.running:
                     print(f"Error in listener: {e}")
 
-    # TO DO: logging for verbose (note: you may use the validate_user_id_and_ip for this)
+    # ✅
     def _handle_log(self, parsed_message):
         msg_type = parsed_message.message_type
         if msg_type != MessageType.PROFILE:
@@ -144,18 +143,13 @@ class LSNPPeer:
         msg_status = parsed_message.fields.get("STATUS")
         msg_ip = msg_user_id.split("@", 1)[1]
 
-        self._log_peer(msg_display_name, msg_user_id, msg_ip, msg_status)
-        self._log_ip(msg_ip)
+        validated = self._validate_user_id_and_ip(msg_user_id, msg_ip)
 
-    # TO DO: logging for verbose (note: may be redundant with update_peer_info not sure)
-    def _log_peer(self, msg_display_name, msg_user_id, msg_ip, msg_status,):
-        """Logs the peers that entered the server"""
-        current_time = time.time()
+        if validated:
+            self._update_peer_info(msg_user_id, msg_display_name, msg_ip, msg_status)
+            self._log_ip(msg_ip)
 
-        if msg_user_id != self.user_id:
-            self.known_peers[msg_user_id] = (msg_display_name, msg_ip, msg_status, current_time)
-
-    # TO DO: logging for verbose 
+    # ✅
     def _log_ip(self, ip_address):
         """Log and store IP address - logging itself is now conditional on verbose"""
         if self.verbose:
@@ -166,7 +160,7 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_new_ip(ip_address)
     
-    # TO DO: use this in handle_log to avoid repeated logic (it's also used in handle_profile)
+    # ✅
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
         if not user_id:
@@ -257,7 +251,8 @@ class LSNPPeer:
             # Preserve existing info, just update timestamp and potentially IP
             old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
             self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-    # ✅
+
+    # TO DO: check when display_name becomes false. see if _update_peer_ping() and "if not display_name:" are needed
     def _handle_profile_message(self, parsed_message):
         """Handle PROFILE messages for peer discovery"""
         user_id = parsed_message.fields.get("USER_ID")
