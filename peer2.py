@@ -12,12 +12,12 @@ import dictionary  # Only for MessageType
 from utils import display_manager
 
 class LSNPPeer:
-    # ===== SET UP
+    # ====== CLASS CONSTANTS ======
     PORT = 50999
     BROADCAST_IP = '255.255.255.255'
     DISCOVERY_INTERVAL = 300
     
-    # ✅
+    # ====== INITIALIZATION ======
     def __init__(self, username=None, display_name=None, verbose=False):
         # Socket setup ✅
         self.sock = socket(AF_INET, SOCK_DGRAM)
@@ -60,7 +60,6 @@ class LSNPPeer:
         
         display_manager.print_startup_banner(self.display_name, self.user_id, self.PORT)
 
-    # ✅
     def _get_local_ip(self):
         """Get the local IP address"""
         try:
@@ -70,21 +69,20 @@ class LSNPPeer:
         except Exception:
             return "127.0.0.1"
 
-    # ✅
+    # ====== LIFECYCLE MANAGEMENT ======
     def start(self):
         """Start the peer"""
         self.running = True
         threading.Thread(target=self._listen_loop, daemon=True).start()
         self.broadcast_profile()
 
-    # ✅
     def stop(self):
         """Stop the peer"""
         self.running = False
         self.sock.close()
         print("Peer left.")
 
-    # ✅
+    # ====== CORE LISTENING & PROCESSING ======
     def _listen_loop(self):
         """Main listening loop"""
         while self.running:
@@ -130,182 +128,6 @@ class LSNPPeer:
                 if self.running:
                     print(f"Error in listener: {e}")
     
-    # NEW: Discovery loop
-    def _discovery_loop(self):
-        """Discovery loop - broadcasts profile and pings, marks stale peers"""
-        send_profile = True  # flip-flop toggle
-
-        while self.running:
-            try:
-                if send_profile:
-                    self.broadcast_profile()
-                else:
-                    self.broadcast_ping()  # Always broadcast ping in discovery
-                
-                self._mark_stale_peers()
-                send_profile = not send_profile  # flip for next iteration
-
-            except Exception as e:
-                if self.running:
-                    print(f"Error in discovery loop: {e}")
-
-            time.sleep(self.DISCOVERY_INTERVAL)  # Alternate every 5 minutes
-
-    # NEW: Broadcast ping for discovery
-    def broadcast_ping(self):
-        """Broadcast a PING message to all peers for discovery"""
-        try:
-            msg = self.message_builder.build_ping()
-            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
-            self.stats['messages_sent'] += 1
-            if self.verbose:
-                display_manager.log_debug("Broadcasted discovery ping")
-        except Exception as e:
-            print(f"Error broadcasting ping: {e}")
-                    
-    # ✅
-    def _log_ip(self, ip_address):
-        """Log and store IP address - logging itself is now conditional on verbose"""
-        if self.verbose:
-            display_manager.log_received_message(ip_address)
-        
-        if ip_address not in self.known_ips:
-            self.known_ips.add(ip_address)
-            if self.verbose:
-                display_manager.log_new_ip(ip_address)
-    
-    # ✅
-    def _validate_user_id_and_ip(self, user_id, sender_ip):
-        """Shared validation logic for USER_ID format and IP matching"""
-        if not user_id:
-            if self.verbose:
-                display_manager.log_warning(f"Missing USER_ID from {sender_ip}")
-            return False
-        
-        # Validate IP matches USER_ID
-        try:
-            claimed_ip = user_id.split('@')[1]
-            if claimed_ip != sender_ip:
-                if self.verbose:
-                    display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
-                return False
-        except IndexError:
-            if self.verbose:
-                display_manager.log_warning(f"Invalid USER_ID format: {user_id}")
-            return False
-        
-        return True
-
-    # ✅
-    def _update_peer_info(self, user_id, display_name, ip, status=""):
-        """Update peer information and log updates conditionally."""
-        current_time = time.time()
-
-        # Skip if it's our own user_id
-        if user_id == self.user_id:
-            return
-
-        if user_id in self.known_peers:
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-
-            name_changed = display_name != old_display_name
-            status_changed = status != old_status
-            ip_changed = ip != old_ip
-
-            if name_changed or status_changed or ip_changed:
-                if self.verbose:
-                    display_manager.log_peer_update(
-                        user_id, display_name, old_display_name, status, old_status, self.verbose
-                    )
-            elif self.verbose:
-                display_manager.log_peer_update(
-                    user_id, display_name, old_display_name, status, old_status, self.verbose
-                )
-        else:
-            if self.verbose:
-                display_manager.log_new_peer(display_name, user_id, ip)
-
-        self.known_peers[user_id] = (display_name, ip, status, current_time)
-
-    # ✅
-    def _update_peer_ping(self, user_id, ip):
-        """Update peer last seen time for PING messages, preserving existing info."""
-        current_time = time.time()
-        
-        # Skip if it's our own user_id
-        if user_id == self.user_id:
-            return
-        
-        if user_id in self.known_peers:
-            # Preserve existing display_name and status, update IP and timestamp
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-            
-            if self.verbose and ip != old_ip:
-                display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
-        else:
-            # New peer with only USER_ID - store with minimal info
-            # Use user_id part as temporary display name
-            temp_display_name = user_id
-            self.known_peers[user_id] = (temp_display_name, ip, "", current_time)
-            
-            if self.verbose:
-                display_manager.log_new_peer(f"{temp_display_name} (ping only)", user_id, ip)
-
-    # ✅
-    def _update_peer_last_seen(self, user_id, ip):
-        """Update just the last seen time for any message from a peer."""
-        current_time = time.time()
-        
-        # Skip if it's our own user_id
-        if user_id == self.user_id:
-            return
-        
-        if user_id in self.known_peers:
-            # Preserve existing info, just update timestamp and potentially IP
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-
-    # TO DO: check when display_name becomes false. see if _update_peer_ping() and "if not display_name:" are needed
-    def _handle_profile_message(self, parsed_message):
-        """Handle PROFILE messages for peer discovery"""
-        user_id = parsed_message.fields.get("USER_ID")
-        display_name = parsed_message.fields.get("DISPLAY_NAME")
-        status = parsed_message.fields.get("STATUS", "")
-        
-        # Use shared validation
-        if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
-            return
-
-        # Update peer info
-        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
-
-        # Log the IP address
-        self._log_ip(parsed_message.sender_ip)
-    
-    def _handle_ping_message(self, parsed_message):
-        """Handle PING messages for peer discovery"""
-        user_id = parsed_message.fields.get("USER_ID")
-        
-        # Use shared validation
-        if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
-            return
-        
-        # Update peer ping info (preserves existing display_name and status)
-        self._update_peer_ping(user_id, parsed_message.sender_ip)
-
-        # Log the IP address
-        self._log_ip(parsed_message.sender_ip)
-
-    # ✅
-    def _get_peer_profiles_dict(self):
-        """Convert internal peer storage to expected format for message parser"""
-        return {
-            user_id: (display_name, ip, status)
-            for user_id, (display_name, ip, status, _) in self.known_peers.items()
-        }
-    
-    # ✅
     def _process_message(self, raw_message, sender_ip):
         """Process incoming message"""
         self.stats['messages_processed'] += 1
@@ -354,8 +176,28 @@ class LSNPPeer:
             print(parsed_message.to_debug_string())
         
         return parsed_message
-    
-    # ✅
+
+    # ====== PEER DISCOVERY & MANAGEMENT ======
+    def _discovery_loop(self):
+        """Discovery loop - broadcasts profile and pings, marks stale peers"""
+        send_profile = True  # flip-flop toggle
+
+        while self.running:
+            try:
+                if send_profile:
+                    self.broadcast_profile()
+                else:
+                    self.broadcast_ping()  # Always broadcast ping in discovery
+                
+                self._mark_stale_peers()
+                send_profile = not send_profile  # flip for next iteration
+
+            except Exception as e:
+                if self.running:
+                    print(f"Error in discovery loop: {e}")
+
+            time.sleep(self.DISCOVERY_INTERVAL)  # Alternate every 5 minutes
+
     def broadcast_profile(self):
         """Broadcast profile to all peers"""
         try:
@@ -367,7 +209,161 @@ class LSNPPeer:
         except Exception as e:
             print(f"Error broadcasting profile: {e}")
 
-    # ✅
+    def broadcast_ping(self):
+        """Broadcast a PING message to all peers for discovery"""
+        try:
+            msg = self.message_builder.build_ping()
+            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
+            self.stats['messages_sent'] += 1
+            if self.verbose:
+                display_manager.log_debug("Broadcasted discovery ping")
+        except Exception as e:
+            print(f"Error broadcasting ping: {e}")
+
+    # TODO: Implement IF NEEDED
+    def _mark_stale_peers(self):
+        """Mark peers as stale if they haven't been seen recently"""
+        """We can either just mark by updating status or remove from list"""
+        # Note: This method is referenced but not implemented
+        pass
+
+    # ====== MESSAGE HANDLING ======
+    def _handle_profile_message(self, parsed_message):
+        """Handle PROFILE messages for peer discovery"""
+        user_id = parsed_message.fields.get("USER_ID")
+        display_name = parsed_message.fields.get("DISPLAY_NAME")
+        status = parsed_message.fields.get("STATUS", "")
+        
+        # Use shared validation
+        if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
+            return
+
+        # Update peer info
+        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
+
+        # Log the IP address
+        self._log_ip(parsed_message.sender_ip)
+    
+    def _handle_ping_message(self, parsed_message):
+        """Handle PING messages for peer discovery"""
+        user_id = parsed_message.fields.get("USER_ID")
+        
+        # Use shared validation
+        if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
+            return
+        
+        # Update peer ping info (preserves existing display_name and status)
+        self._update_peer_ping(user_id, parsed_message.sender_ip)
+
+        # Log the IP address
+        self._log_ip(parsed_message.sender_ip)
+
+    # ====== PEER INFORMATION MANAGEMENT ======
+    def _validate_user_id_and_ip(self, user_id, sender_ip):
+        """Shared validation logic for USER_ID format and IP matching"""
+        if not user_id:
+            if self.verbose:
+                display_manager.log_warning(f"Missing USER_ID from {sender_ip}")
+            return False
+        
+        # Validate IP matches USER_ID
+        try:
+            claimed_ip = user_id.split('@')[1]
+            if claimed_ip != sender_ip:
+                if self.verbose:
+                    display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
+                return False
+        except IndexError:
+            if self.verbose:
+                display_manager.log_warning(f"Invalid USER_ID format: {user_id}")
+            return False
+        
+        return True
+
+    def _update_peer_info(self, user_id, display_name, ip, status=""):
+        """Update peer information and log updates conditionally."""
+        current_time = time.time()
+
+        # Skip if it's our own user_id
+        if user_id == self.user_id:
+            return
+
+        if user_id in self.known_peers:
+            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+
+            name_changed = display_name != old_display_name
+            status_changed = status != old_status
+            ip_changed = ip != old_ip
+
+            if name_changed or status_changed or ip_changed:
+                if self.verbose:
+                    display_manager.log_peer_update(
+                        user_id, display_name, old_display_name, status, old_status, self.verbose
+                    )
+            elif self.verbose:
+                display_manager.log_peer_update(
+                    user_id, display_name, old_display_name, status, old_status, self.verbose
+                )
+        else:
+            if self.verbose:
+                display_manager.log_new_peer(display_name, user_id, ip)
+
+        self.known_peers[user_id] = (display_name, ip, status, current_time)
+
+    def _update_peer_ping(self, user_id, ip):
+        """Update peer last seen time for PING messages, preserving existing info."""
+        current_time = time.time()
+        
+        # Skip if it's our own user_id
+        if user_id == self.user_id:
+            return
+        
+        if user_id in self.known_peers:
+            # Preserve existing display_name and status, update IP and timestamp
+            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
+            
+            if self.verbose and ip != old_ip:
+                display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
+        else:
+            # New peer with only USER_ID - store with minimal info
+            # Use user_id part as temporary display name
+            temp_display_name = user_id
+            self.known_peers[user_id] = (temp_display_name, ip, "", current_time)
+            
+            if self.verbose:
+                display_manager.log_new_peer(f"{temp_display_name} (ping only)", user_id, ip)
+
+    def _update_peer_last_seen(self, user_id, ip):
+        """Update just the last seen time for any message from a peer."""
+        current_time = time.time()
+        
+        # Skip if it's our own user_id
+        if user_id == self.user_id:
+            return
+        
+        if user_id in self.known_peers:
+            # Preserve existing info, just update timestamp and potentially IP
+            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
+
+    def _log_ip(self, ip_address):
+        """Log and store IP address - logging itself is now conditional on verbose"""
+        if self.verbose:
+            display_manager.log_received_message(ip_address)
+        
+        if ip_address not in self.known_ips:
+            self.known_ips.add(ip_address)
+            if self.verbose:
+                display_manager.log_new_ip(ip_address)
+
+    def _get_peer_profiles_dict(self):
+        """Convert internal peer storage to expected format for message parser"""
+        return {
+            user_id: (display_name, ip, status)
+            for user_id, (display_name, ip, status, _) in self.known_peers.items()
+        }
+
     def _find_peer_ip(self, user_id):
         """Find IP address for a given user ID"""
         if "@" not in user_id:
@@ -375,8 +371,8 @@ class LSNPPeer:
         
         peer = self.known_peers.get(user_id)
         return peer[1] if peer else None
-    
-    # ✅
+
+    # ====== MESSAGE SENDING ======
     def send_message_to_peer(self, user_id, message):
         """Send a message to a specific peer using their user_id"""
         # Look up the peer's IP address using the user_id
@@ -393,7 +389,6 @@ class LSNPPeer:
         else:
             print(f"User {user_id} not found in known peers.")
 
-    # ✅
     def send_post(self, content):
         """Send a POST message to all known peers"""
         if not content.strip():
@@ -415,7 +410,6 @@ class LSNPPeer:
 
         print(f"Post sent: {content}")
 
-    # ✅
     def send_dm(self, target_user_id, content):
         """Send a DM to a specific user"""
         if not content.strip():
@@ -432,7 +426,6 @@ class LSNPPeer:
         else:
             print(f"User {target_user_id} not found.")
 
-    # ✅ || TO UPDATE for MS2 :: make sure to update followers and following
     def send_follow(self, target_user_id):
         """Send a FOLLOW message to a specific user"""
         if target_user_id in self.following:
@@ -450,6 +443,7 @@ class LSNPPeer:
         else:
             print(f"User {target_user_id} not found.")
 
+    # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
         """Handle user commands"""
         parts = cmd.strip().split()
@@ -521,7 +515,8 @@ class LSNPPeer:
             display_manager.print_help()
         else:
             print(f"Unknown command: {cmd}. Type 'help' for available commands.")
-            
+
+# ====== MAIN FUNCTION ======            
 def main():
     """Main function - parse arguments and start peer"""
     username = None
