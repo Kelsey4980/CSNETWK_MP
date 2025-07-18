@@ -15,6 +15,7 @@ class LSNPPeer:
     # ===== SET UP
     PORT = 50999
     BROADCAST_IP = '255.255.255.255'
+    DISCOVERY_INTERVAL = 300
     
     # ✅
     def __init__(self, username=None, display_name=None, verbose=False):
@@ -128,6 +129,39 @@ class LSNPPeer:
             except Exception as e:
                 if self.running:
                     print(f"Error in listener: {e}")
+    
+    # NEW: Discovery loop
+    def _discovery_loop(self):
+        """Discovery loop - broadcasts profile and pings, marks stale peers"""
+        send_profile = True  # flip-flop toggle
+
+        while self.running:
+            try:
+                if send_profile:
+                    self.broadcast_profile()
+                else:
+                    self.broadcast_ping()  # Always broadcast ping in discovery
+                
+                self._mark_stale_peers()
+                send_profile = not send_profile  # flip for next iteration
+
+            except Exception as e:
+                if self.running:
+                    print(f"Error in discovery loop: {e}")
+
+            time.sleep(self.DISCOVERY_INTERVAL)  # Alternate every 5 minutes
+
+    # NEW: Broadcast ping for discovery
+    def broadcast_ping(self):
+        """Broadcast a PING message to all peers for discovery"""
+        try:
+            msg = self.message_builder.build_ping()
+            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
+            self.stats['messages_sent'] += 1
+            if self.verbose:
+                display_manager.log_debug("Broadcasted discovery ping")
+        except Exception as e:
+            print(f"Error broadcasting ping: {e}")
                     
     # ✅
     def _log_ip(self, ip_address):
@@ -416,23 +450,6 @@ class LSNPPeer:
         else:
             print(f"User {target_user_id} not found.")
 
-    def send_ping(self, target_user_id=None):
-        """Send a PING message to a specific user by user_id or broadcast if no user_id is provided"""
-        if target_user_id:
-            # Send ping to specific user by user_id
-            msg = self.message_builder.build_ping()
-            self.send_message_to_peer(target_user_id, msg)
-            print(f"Ping sent to {target_user_id}")
-        else:
-            # If no user_id is provided, broadcast the ping
-            msg = self.message_builder.build_ping()
-            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
-            self.stats['messages_sent'] += 1
-            print("Ping broadcast sent")
-
-        if self.verbose:  # Log ping sent only in verbose mode
-            display_manager.log_debug(f"Sent PING to {target_user_id if target_user_id else 'broadcast'}")
-
     def handle_command(self, cmd):
         """Handle user commands"""
         parts = cmd.strip().split()
@@ -467,8 +484,8 @@ class LSNPPeer:
                 print("Usage: follow <user_id>")
         # ✅
         elif cmd == "ping":
-            target_uid = parts[1] if len(parts) > 1 else None
-            self.send_ping(target_uid)
+            self.broadcast_ping()
+            print("Ping broadcast sent")
         # ✅
         elif cmd == "broadcast":
             self.broadcast_profile()
