@@ -63,7 +63,7 @@
 - implement discovery loop (use origin lsnp_peer as sample)
 - improve verbose and non-verbose display (refer to the RFC for non-verbose)
 - implement other message features (starting from follow)
-- implement retries
+- consult Sir if we need to "stale" peers (for when peers disconnect, was lowkey implied in section 6 but not explicitly stated)
 
 # GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
 1. **message_builder.py**: Implement build_<type>() method with required fields if not yet in file
