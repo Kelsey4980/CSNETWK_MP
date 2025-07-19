@@ -267,6 +267,14 @@ class LSNPPeer:
         follower_to_add = parsed_message.fields.get("FROM")
         if follower_to_add:
             self.followers.add(follower_to_add)
+            if not self._validate_user_id_and_ip(follower_to_add, parsed_message.sender_ip):
+                return
+
+            # Update peer ping info (preserves existing display_name and status)
+            self._update_peer_ping(follower_to_add, parsed_message.sender_ip)
+
+            # Log the IP address
+            self._log_ip(parsed_message.sender_ip)
             if self.verbose:
                 display_manager.log_debug(f"You have been followed by {follower_to_add}. They have been added to your "
                                           "followers list")
