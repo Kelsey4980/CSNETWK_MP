@@ -272,6 +272,18 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_warning(f"Invalid follow message from {parsed_message.sender_ip}")
 
+    def _handle_unfollow_message(self, parsed_message):
+        """Accept an UNFOLLOW message from a specific user"""
+        follower_to_remove = parsed_message.fields.get("FROM")
+        if follower_to_remove:
+            self.followers.remove(follower_to_remove)
+            if self.verbose:
+                display_manager.log_debug(f"You have been unfollowed by {follower_to_remove}. They have been removed from your "
+                                          "followers list")
+        else:
+            if self.verbose:
+                display_manager.log_warning(f"Invalid unfollow message from {parsed_message.sender_ip}")
+
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
@@ -456,6 +468,22 @@ class LSNPPeer:
             self.send_message_to_peer(target_user_id, msg)
             self.following.add(target_user_id)  # Add to following set
             print(f"You are now following {target_user_id}")
+        else:
+            print(f"User {target_user_id} not found.")
+
+    def send_unfollow(self, target_user_id):
+        """Send an UNFOLLOW message to a specific user"""
+        target_ip = self._find_peer_ip(target_user_id)
+
+        if target_ip:
+            if target_user_id in self.following:
+                msg = self.message_builder.build_unfollow(target_user_id)
+                self.send_message_to_peer(target_user_id, msg)
+                self.following.remove(target_user_id)
+                print(f"You have unfollowed {target_user_id}")
+                return
+            else:
+                print(f"You are not following {target_user_id}")
         else:
             print(f"User {target_user_id} not found.")
 
