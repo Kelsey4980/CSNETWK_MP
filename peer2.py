@@ -286,7 +286,7 @@ class LSNPPeer:
             if claimed_ip != sender_ip:
                 if self.verbose:
                     display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
-                return False
+                # return False
         except IndexError:
             if self.verbose:
                 display_manager.log_warning(f"Invalid USER_ID format: {user_id}")
@@ -412,7 +412,7 @@ class LSNPPeer:
         msg = self.message_builder.build_post(content)
 
         # TO UPDATE for MS2 :: must be in followers
-        peers_to_send_to = [uid for uid in self.known_peers if uid != self.user_id]
+        peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]
         if peers_to_send_to:
             for uid in peers_to_send_to:
                 self.send_message_to_peer(uid, msg)
