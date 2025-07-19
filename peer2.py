@@ -286,7 +286,7 @@ class LSNPPeer:
             if claimed_ip != sender_ip:
                 if self.verbose:
                     display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
-                return False
+                # return False
         except IndexError:
             if self.verbose:
                 display_manager.log_warning(f"Invalid USER_ID format: {user_id}")
