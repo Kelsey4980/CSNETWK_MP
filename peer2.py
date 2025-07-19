@@ -108,9 +108,6 @@ class LSNPPeer:
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
                     continue
-                if parsed_message and parsed_message.message_type == MessageType.FOLLOW:
-                    self._accept_follow(parsed_message, sender_user_id)
-
 
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
@@ -148,6 +145,8 @@ class LSNPPeer:
             self._handle_profile_message(parsed_message)
         elif parsed_message.message_type == MessageType.PING:
             self._handle_ping_message(parsed_message)
+        elif parsed_message.message_type == MessageType.FOLLOW:
+            self._handle_follow_message(parsed_message)
 
         # Insert handlers for other message types here (e.g., for storage logic)
         
@@ -260,6 +259,18 @@ class LSNPPeer:
 
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
+
+    def _handle_follow_message(self, parsed_message):
+        """Accept a FOLLOW message from a specific user"""
+        follower_to_add = parsed_message.fields.get("FROM")
+        if follower_to_add:
+            self.followers.add(follower_to_add)
+            if self.verbose:
+                display_manager.log_debug(f"You have been followed by {follower_to_add}. They have been added to your "
+                                          "followers list")
+        else:
+            if self.verbose:
+                display_manager.log_warning(f"Invalid follow message from {parsed_message.sender_ip}")
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -445,20 +456,6 @@ class LSNPPeer:
             print(f"You are now following {target_user_id}")
         else:
             print(f"User {target_user_id} not found.")
-
-    # ====== MESSAGE ACCEPTING ======
-
-    def _accept_follow(self, parsed_message, sender_user_id):
-        """Accept a FOLLOW message from a specific user"""
-        follower_to_add = parsed_message.fields.get("FROM")
-        if follower_to_add:
-            self.followers.add(follower_to_add)
-            if self.verbose:
-                display_manager.log_debug(f"You have been followed by {follower_to_add}. They have been added to your "
-                                          "followers list")
-        else:
-            if self.verbose:
-                display_manager.log_warning(f"Invalid follow message from {sender_user_id}")
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
