@@ -286,6 +286,8 @@ class LSNPPeer:
             if claimed_ip != sender_ip:
                 if self.verbose:
                     display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
+                # This portion is commented for testing purposes. Currently we are using VPN only, hence the IPs will
+                # always be different.
                 # return False
         except IndexError:
             if self.verbose:
