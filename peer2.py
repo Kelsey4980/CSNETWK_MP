@@ -108,6 +108,9 @@ class LSNPPeer:
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
                     continue
+                if parsed_message and parsed_message.message_type == MessageType.FOLLOW:
+                    self._accept_follow(parsed_message, sender_user_id)
+
 
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
@@ -443,6 +446,20 @@ class LSNPPeer:
         else:
             print(f"User {target_user_id} not found.")
 
+    # ====== MESSAGE ACCEPTING ======
+
+    def _accept_follow(self, parsed_message, sender_user_id):
+        """Accept a FOLLOW message from a specific user"""
+        follower_to_add = parsed_message.fields.get("FROM")
+        if follower_to_add:
+            self.followers.add(follower_to_add)
+            if self.verbose:
+                display_manager.log_debug(f"You have been followed by {follower_to_add}. They have been added to your "
+                                          "followers list")
+        else:
+            if self.verbose:
+                display_manager.log_warning(f"Invalid follow message from {sender_user_id}")
+
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
         """Handle user commands"""
@@ -499,6 +516,8 @@ class LSNPPeer:
         # ✅
         elif cmd == "following":
             display_manager.print_following_list(self.following)
+        elif cmd == "followers":
+            display_manager.print_followers_list(self.followers)
         # ✅
         elif cmd == "verbose":
             self.verbose = not self.verbose

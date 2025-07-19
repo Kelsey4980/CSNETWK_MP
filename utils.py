@@ -131,6 +131,7 @@ class DisplayManager:
         print("  info         - Show peer information")
         print("  stats        - Show message statistics")
         print("  following    - List peers followed")
+        print("  followers    - List peers following you")
         print()
         print("System Commands:")
         print("  verbose      - Toggle verbose mode")
@@ -146,6 +147,16 @@ class DisplayManager:
             
         print("You're following:")
         for user_id in following:
+            print(f"  - {user_id}")
+
+    def print_followers_list(self, followers):
+        """List all users following us"""
+        if len(followers) == 0:
+            print("You don't have any followers yet")
+            return
+
+        print("Your followers:")
+        for user_id in followers:
             print(f"  - {user_id}")
 
 # Create global display manager instance
