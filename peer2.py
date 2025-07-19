@@ -147,6 +147,8 @@ class LSNPPeer:
             self._handle_ping_message(parsed_message)
         elif parsed_message.message_type == MessageType.FOLLOW:
             self._handle_follow_message(parsed_message)
+        elif parsed_message.message_type == MessageType.UNFOLLOW:
+            self._handle_unfollow_message(parsed_message)
 
         # Insert handlers for other message types here (e.g., for storage logic)
         
@@ -520,6 +522,11 @@ class LSNPPeer:
                 self.send_follow(parts[1])
             else:
                 print("Usage: follow <user_id>")
+        elif cmd == "unfollow":
+            if len(parts) > 1:
+                self.send_unfollow(parts[1])
+            else:
+                print("Usage: unfollow <user_id>")
         # ✅
         elif cmd == "ping":
             self.broadcast_ping()
