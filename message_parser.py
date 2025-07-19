@@ -240,6 +240,13 @@ class MessageParser:
 
                 return f"{timestamp_str} User {follower_display_name} has followed you"
             
+            elif msg_type == MessageType.UNFOLLOW:
+                # final: “User alice has unfollowed you”
+                follower_user_id = message.fields.get("FROM")
+                follower_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} User {follower_display_name} has unfollowed you"
+            
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display
                 return ""
