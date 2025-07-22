@@ -39,7 +39,7 @@ class MessageBuilder:
         print(f"[DEBUG] Generated token for {scope}: {token}, expires at {time.ctime(expiry)}")
         return token
     
-    def get_cached_token(self, scope: str = "chat") -> Optional[str]:
+    def get_cached_token(self, scope: str = "chat", ttl_seconds: int = None) -> Optional[str]:
         """Get cached token if valid, otherwise generate new one"""
         if scope in self.token_cache:
             token = self.token_cache[scope]
@@ -52,7 +52,7 @@ class MessageBuilder:
             except (ValueError, IndexError):
                 pass
         
-        return self.generate_token(scope)
+        return self.generate_token(scope, ttl_seconds)
     
     def build_profile(self, status: str = "") -> str:
         """
@@ -80,7 +80,7 @@ class MessageBuilder:
             ttl_seconds = DEFAULT_TTL
         
         message_id = self.generate_message_id()
-        token = self.get_cached_token("chat")
+        token = self.get_cached_token("chat", ttl_seconds) # ttl_seconds is expiration time
         
         message_parts = [
             f"TYPE: POST",

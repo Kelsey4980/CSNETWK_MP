@@ -427,13 +427,14 @@ class LSNPPeer:
         else:
             print(f"User {user_id} not found in known peers.")
 
-    def send_post(self, content):
+    def send_post(self, content, ttl_seconds: int = None):
         """Send a POST message to all known peers"""
         if not content.strip():
             print("Post content cannot be empty.")
             return
 
-        msg = self.message_builder.build_post(content)
+        msg = self.message_builder.build_post(content, ttl_seconds)
+        current_time = time.time() # need this for post reference for followers to like
 
         # TO UPDATE for MS2 :: must be in followers
         peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]
@@ -512,10 +513,10 @@ class LSNPPeer:
         # ✅
         elif cmd == "ips":
             display_manager.print_known_ips(self.known_ips)
-        # ✅
+        # TODO: make ttl_seconds changeable (basically idk where the user should change it)
         elif cmd == "post":
             content = ' '.join(parts[1:]) if len(parts) > 1 else ""
-            self.send_post(content)
+            self.send_post(content) # ttl_seconds as second argument
         # ✅
         elif cmd == "dm":
             if len(parts) > 2:
