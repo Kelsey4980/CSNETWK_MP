@@ -43,7 +43,7 @@ class LSNPPeer:
         self.known_ips = set()
         self.following = set()
         self.followers = set()
-        self.dms = {}
+        self.posts = {}
         self.running = False
         self.verbose = verbose
         
