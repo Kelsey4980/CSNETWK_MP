@@ -434,13 +434,18 @@ class LSNPPeer:
             return
 
         msg = self.message_builder.build_post(content, ttl_seconds)
-        current_time = time.time() # need this for post reference for followers to like
+        current_time = time.time()
 
         # TO UPDATE for MS2 :: must be in followers
         peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]
         if peers_to_send_to:
             for uid in peers_to_send_to:
                 self.send_message_to_peer(uid, msg)
+            self.posts[current_time] = {
+                "sender": self.user_id,
+                "content": content,
+                "likes": 0
+            }
         else:  # If no other peers, broadcast
             self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
             self.stats['messages_sent'] += 1
