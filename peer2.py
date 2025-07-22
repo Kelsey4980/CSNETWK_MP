@@ -514,6 +514,7 @@ class LSNPPeer:
         elif cmd == "ips":
             display_manager.print_known_ips(self.known_ips)
         # TODO: make ttl_seconds changeable (basically idk where the user should change it)
+        # this may also be moved to ms2_draft
         elif cmd == "post":
             content = ' '.join(parts[1:]) if len(parts) > 1 else ""
             self.send_post(content) # ttl_seconds as second argument
