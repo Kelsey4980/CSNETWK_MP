@@ -8,6 +8,7 @@ class MessageType(Enum):
     FOLLOW = "FOLLOW"
     UNFOLLOW = "UNFOLLOW"
     LIKE = "LIKE"
+    UNLIKE = "UNLIKE"
     FILE_OFFER = "FILE_OFFER"
     FILE_CHUNK = "FILE_CHUNK"
     FILE_RECEIVED = "FILE_RECEIVED"

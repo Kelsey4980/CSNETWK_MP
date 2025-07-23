@@ -164,6 +164,11 @@ class MessageParser:
                 message.validation_errors.append("LIKE message missing required fields")
                 message.is_valid = False
 
+        elif message.message_type == MessageType.UNLIKE:
+            if not all(k in message.fields for k in ["FROM", "TO", "POST_TIMESTAMP", "ACTION", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append("UNLIKE message missing required fields")
+                message.is_valid = False
+
         elif message.message_type == MessageType.PING:
             if "USER_ID" not in message.fields:
                 message.validation_errors.append("PING message missing USER_ID")

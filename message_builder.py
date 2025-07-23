@@ -178,6 +178,27 @@ class MessageBuilder:
         ]
         
         return "\n".join(message_parts)
+
+    def build_unlike(self, to_user_id: str, post_timestamp: int, action: str = "UNLIKE") -> str:
+        """
+        Build an UNLIKE message
+        Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
+        """
+        token = self.get_cached_token("chat")
+        timestamp = int(time.time())
+
+        message_parts = [
+            f"TYPE: LIKE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"POST_TIMESTAMP: {post_timestamp}",
+            f"ACTION: {action}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+
+        return "\n".join(message_parts)
     
     def build_ping(self) -> str:
         """

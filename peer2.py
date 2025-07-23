@@ -152,6 +152,10 @@ class LSNPPeer:
             self._handle_unfollow_message(parsed_message)
         elif parsed_message.message_type == MessageType.POST:
             self._handle_post_message(parsed_message)
+        elif parsed_message.message_type == MessageType.LIKE:
+            self._handle_likes(parsed_message)
+        elif parsed_message.message_type == MessageType.UNLIKE:
+            self._handle_unlikes(parsed_message)
 
         # Insert handlers for other message types here (e.g., for storage logic)
         
@@ -306,7 +310,11 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
-        self.received_posts[current_time] = (user_id, content)
+        self.received_posts[current_time] = {
+            "user_id": user_id,
+            "content": content,
+            "liking": False
+        }
 
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_likes(self, parsed_message):
@@ -316,6 +324,22 @@ class LSNPPeer:
 
         if user_id in self.followers:
             self.posts[post_timestamp]["likers"].add(user_id)
+        else:
+            print(f"User {user_id} is not following you.")
+
+    # TODO: Check if correct. also might need to add the verbose stuff
+    def _handle_unlikes(self, parsed_message):
+        '''Accept an UNLIKE message from a specific user'''
+        user_id = parsed_message.fields.get("FROM")
+        post_timestamp = float(parsed_message.fields.get("POST_TIMESTAMP"))
+
+        if user_id in self.followers:
+
+            if user_id in self.posts[post_timestamp]["likers"]:
+                self.posts[post_timestamp]["likers"].remove(user_id)
+            else:
+                print(f"User {user_id} has not liked this post.")
+
         else:
             print(f"User {user_id} is not following you.")
 
@@ -530,6 +554,7 @@ class LSNPPeer:
         else:
             print(f"User {target_user_id} not found.")
 
+    # TODO: Check if correct
     def send_like(self, post_timestamp):
         """Send a LIKE to a followed user's post"""
         if post_timestamp in self.received_posts.keys():
@@ -538,10 +563,26 @@ class LSNPPeer:
             if user_id in self.following:
                 msg = self.message_builder.build_like(user_id, post_timestamp)
                 self.send_message_to_peer(user_id, msg)
+
+                self.received_posts[post_timestamp]["liking"] = True # turns like state to true
+
                 print(f"You liked post made at {post_timestamp} from {user_id}")
             else:
                 print(f"You are not following {user_id}")
 
+        else:
+            print(f"Post with timestamp {post_timestamp} not found.")
+
+    # TODO: Check if correct
+    def send_unlike(self, post_timestamp):
+        """Send an UNLIKE to a followed user's post"""
+
+        if post_timestamp in self.received_posts.keys():
+            msg = self.message_builder.build_unlike(post_timestamp)
+            user_id = self.received_posts[post_timestamp]["user_id"]
+            self.send_message_to_peer(user_id, msg)
+
+            self.received_posts[post_timestamp]["liking"] = False
         else:
             print(f"Post with timestamp {post_timestamp} not found.")
 
@@ -580,11 +621,26 @@ class LSNPPeer:
                 self.send_follow(parts[1])
             else:
                 print("Usage: follow <user_id>")
+        # TODO: Check if working/correct
         elif cmd == "unfollow":
             if len(parts) > 1:
                 self.send_unfollow(parts[1])
             else:
                 print("Usage: unfollow <user_id>")
+        # TODO: Check if working/correct
+        elif cmd == "like":
+            if len(parts) > 1:
+                post_timestamp = float(parts[1])
+                self.send_like(post_timestamp)
+            else:
+                print("Usage: like <post_timestamp>")
+        # TODO: Check if working/correct
+        elif cmd == "unlike":
+            if len(parts) > 1:
+                post_timestamp = float(parts[1])
+                self.send_unlike(post_timestamp)
+            else:
+                print("Usage: unlike <post_timestamp>")
         # ✅
         elif cmd == "ping":
             self.broadcast_ping()
