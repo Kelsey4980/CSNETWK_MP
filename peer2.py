@@ -296,19 +296,28 @@ class LSNPPeer:
         else:
             if self.verbose:
                 display_manager.log_warning(f"Invalid unfollow message from {parsed_message.sender_ip}")
-
+    # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_post_message(self, parsed_message):
         '''Accept a POST message from a specific user'''
         current_time_with_ttl = parsed_message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
         ttl = parsed_message.fields.get("TTL")
         current_time = float(current_time_with_ttl) - float(ttl)  # subtracts ttl from post time
 
-        message_id = parsed_message.fields.get("MESSAGE_ID")
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
+        self.received_posts[current_time] = (user_id, content)
 
-        self.received_posts[current_time] = (message_id, user_id, content)
+    # TODO: Check if correct. also might need to add the verbose stuff
+    def _handle_likes(self, parsed_message):
+        '''Accept a LIKE message from a specific user'''
+        user_id = parsed_message.fields.get("FROM")
+        post_timestamp = float(parsed_message.fields.get("POST_TIMESTAMP"))
+
+        if user_id in self.followers:
+            self.posts[post_timestamp]["likers"].add(user_id)
+        else:
+            print(f"User {user_id} is not following you.")
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -520,6 +529,22 @@ class LSNPPeer:
                 print(f"You are not following {target_user_id}")
         else:
             print(f"User {target_user_id} not found.")
+
+    def send_like(self, post_timestamp):
+        """Send a LIKE to a followed user's post"""
+        if post_timestamp in self.received_posts.keys():
+            user_id, content = self.received_posts[post_timestamp]
+
+            if user_id in self.following:
+                msg = self.message_builder.build_like(user_id, post_timestamp)
+                self.send_message_to_peer(user_id, msg)
+                print(f"You liked post made at {post_timestamp} from {user_id}")
+            else:
+                print(f"You are not following {user_id}")
+
+        else:
+            print(f"Post with timestamp {post_timestamp} not found.")
+
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
