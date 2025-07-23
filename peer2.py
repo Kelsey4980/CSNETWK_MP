@@ -43,7 +43,8 @@ class LSNPPeer:
         self.known_ips = set()
         self.following = set()
         self.followers = set()
-        self.posts = {}
+        self.posts = {} # posts you sent, used for storing likes
+        self.received_posts = {} # posts you received, used for sending likes/unlikes
         self.running = False
         self.verbose = verbose
         
@@ -149,6 +150,8 @@ class LSNPPeer:
             self._handle_follow_message(parsed_message)
         elif parsed_message.message_type == MessageType.UNFOLLOW:
             self._handle_unfollow_message(parsed_message)
+        elif parsed_message.message_type == MessageType.POST:
+            self._handle_post_message(parsed_message)
 
         # Insert handlers for other message types here (e.g., for storage logic)
         
@@ -293,6 +296,15 @@ class LSNPPeer:
         else:
             if self.verbose:
                 display_manager.log_warning(f"Invalid unfollow message from {parsed_message.sender_ip}")
+
+    def _handle_post_message(self, parsed_message):
+        '''Accept a POST message from a specific user'''
+        current_time = time.time()
+        user_id = parsed_message.fields.get("USER_ID")
+        content = parsed_message.fields.get("CONTENT")
+
+        self.received_posts[current_time] = (user_id, content)
+
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -448,7 +460,6 @@ class LSNPPeer:
                 display_manager.log_debug(f"Broadcasted POST: {content}")
 
         self.posts[current_time] = {
-            "sender": self.user_id,
             "content": content,
             "likers": set() # set of user_ids that liked this post
         }
