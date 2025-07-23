@@ -126,6 +126,8 @@ class DisplayManager:
         print("  dm <user_id> <msg> - Send direct message")
         print("  follow <user_id>    - Follow user")
         print("  unfollow <user_id>    -  Unfollow user")
+        print("  like <post_timestamp>    - Like a post of a followed user")
+        print("  unlike <post_timestamp>    - Revoke a like from a post of a followed user")
         print()
         print("Status Commands:")
         print("  status [msg] - View or set status message")
