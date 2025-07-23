@@ -300,6 +300,7 @@ class LSNPPeer:
         else:
             if self.verbose:
                 display_manager.log_warning(f"Invalid unfollow message from {parsed_message.sender_ip}")
+
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_post_message(self, parsed_message):
         '''Accept a POST message from a specific user'''
@@ -558,15 +559,20 @@ class LSNPPeer:
     def send_like(self, post_timestamp):
         """Send a LIKE to a followed user's post"""
         if post_timestamp in self.received_posts.keys():
-            user_id, content = self.received_posts[post_timestamp]
+            user_id = self.received_posts[post_timestamp]["user_id"]
 
             if user_id in self.following:
-                msg = self.message_builder.build_like(user_id, post_timestamp)
-                self.send_message_to_peer(user_id, msg)
 
-                self.received_posts[post_timestamp]["liking"] = True # turns like state to true
+                if not self.received_posts[post_timestamp]["liking"]:
+                    msg = self.message_builder.build_like(user_id, post_timestamp)
+                    self.send_message_to_peer(user_id, msg)
 
-                print(f"You liked post made at {post_timestamp} from {user_id}")
+                    self.received_posts[post_timestamp]["liking"] = True # turns like state to true
+
+                    print(f"You liked post made at {post_timestamp} from {user_id}")
+                else:
+                    print(f"You have already liked post made at {post_timestamp} from {user_id}")
+
             else:
                 print(f"You are not following {user_id}")
 
@@ -578,11 +584,16 @@ class LSNPPeer:
         """Send an UNLIKE to a followed user's post"""
 
         if post_timestamp in self.received_posts.keys():
-            msg = self.message_builder.build_unlike(post_timestamp)
             user_id = self.received_posts[post_timestamp]["user_id"]
-            self.send_message_to_peer(user_id, msg)
 
-            self.received_posts[post_timestamp]["liking"] = False
+            if self.received_posts[post_timestamp]["liking"]:
+                msg = self.message_builder.build_unlike(user_id, post_timestamp)
+                self.send_message_to_peer(user_id, msg)
+
+                self.received_posts[post_timestamp]["liking"] = False
+            else:
+                print(f"You have not liked post made at {post_timestamp} from {user_id}")
+
         else:
             print(f"Post with timestamp {post_timestamp} not found.")
 
