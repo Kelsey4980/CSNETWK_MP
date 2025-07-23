@@ -300,11 +300,12 @@ class LSNPPeer:
     def _handle_post_message(self, parsed_message):
         '''Accept a POST message from a specific user'''
         current_time = time.time()
+
+        message_id = parsed_message.fields.get("MESSAGE_ID")
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
-        self.received_posts[current_time] = (user_id, content)
-
+        self.received_posts[current_time] = (message_id, user_id, content)
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
