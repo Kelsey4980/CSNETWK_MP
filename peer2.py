@@ -299,11 +299,14 @@ class LSNPPeer:
 
     def _handle_post_message(self, parsed_message):
         '''Accept a POST message from a specific user'''
-        current_time = time.time()
+        current_time_with_ttl = parsed_message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
+        ttl = parsed_message.fields.get("TTL")
+        current_time = float(current_time_with_ttl) - float(ttl)  # subtracts ttl from post time
 
         message_id = parsed_message.fields.get("MESSAGE_ID")
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
+
 
         self.received_posts[current_time] = (message_id, user_id, content)
 
@@ -447,7 +450,9 @@ class LSNPPeer:
             return
 
         msg = self.message_builder.build_post(content, ttl_seconds)
-        current_time = time.time()
+        parsed_msg = self.message_parser.parse_message(msg)
+        current_time_with_ttl = parsed_msg.fields.get("TOKEN").split("|")[1] # gets 2nd part of token
+        current_time = float(current_time_with_ttl) - float(ttl_seconds) # subtracts ttl from post time
 
         # TODO: check if correct
         peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]

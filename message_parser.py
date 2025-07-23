@@ -67,7 +67,7 @@ class MessageParser:
         """Get count of invalid messages"""
         return self.invalid_count
     
-    def parse_message(self, raw_message: str, sender_ip: str) -> Optional[ParsedMessage]:
+    def parse_message(self, raw_message: str, sender_ip: str = None) -> Optional[ParsedMessage]:
         """Parse a raw LSNP message into a ParsedMessage object"""
         self.processed_count += 1
         
