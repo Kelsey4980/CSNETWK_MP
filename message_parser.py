@@ -189,7 +189,17 @@ class MessageParser:
                 message.validation_errors.append("GROUP_MESSAGE message missing required fields")
                 message.is_valid = False
 
+        elif message.message_type == MessageType.GROUP_UPDATE:
+            required_fields = ["FROM", "GROUP_ID", "TIMESTAMP", "TOKEN"]
+    
+            if not all(k in message.fields for k in required_fields):
+                message.validation_errors.append("GROUP_UPDATE message missing required fields")
+                message.is_valid = False
 
+            if "ADD" not in message.fields and "REMOVE" not in message.fields:
+                message.validation_errors.append("GROUP_UPDATE must include ADD and/or REMOVE")
+                message.is_valid = False
+            
         else:
             # Unknown or unsupported type
             message.validation_errors.append("Unsupported or unknown message type")

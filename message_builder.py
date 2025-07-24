@@ -264,6 +264,47 @@ class MessageBuilder:
         
         return "\n".join(message_parts)
     
+    def build_group_update(self, group_id, add_members, remove_members, timestamp):
+        """
+        Build a GROUP_MESSAGE message
+        Format: TYPE, FROM, GROUP_ID, ADD, REMOVE, TOKEN
+        """
+        token = self.get_cached_token("group")
+
+        if add_members and remove_members:
+            message_parts = [
+                f"TYPE: GROUP_MESSAGE",
+                f"FROM: {self.user_id}",
+                f"GROUP_ID: {group_id}",
+                f"ADD: {add_members}",
+                f"REMOVE: {remove_members}",
+                f"TIMESTAMP: {timestamp}",
+                f"TOKEN: {token}",
+                ""
+            ]
+        elif add_members:
+            message_parts = [
+                f"TYPE: GROUP_MESSAGE",
+                f"FROM: {self.user_id}",
+                f"GROUP_ID: {group_id}",
+                f"ADD: {add_members}",
+                f"TIMESTAMP: {timestamp}",
+                f"TOKEN: {token}",
+                ""
+            ]
+        elif remove_members:
+            message_parts = [
+                f"TYPE: GROUP_MESSAGE",
+                f"FROM: {self.user_id}",
+                f"GROUP_ID: {group_id}",
+                f"REMOVE: {remove_members}",
+                f"TIMESTAMP: {timestamp}",
+                f"TOKEN: {token}",
+                ""
+            ]
+        
+        return "\n".join(message_parts)
+    
     def validate_message_format(self, message: str) -> Dict[str, Any]:
         """
         Validate that a built message follows proper LSNP format

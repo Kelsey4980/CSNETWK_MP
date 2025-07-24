@@ -383,6 +383,23 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_warning(f"{group_creator} is trying to add you in a group with a duplicate group ID ({group_id})")
 
+    # TODO: Check if correct. also might need to add the verbose stuff
+    def _handle_group_update(self, parsed_message):
+        """Acept a GROUP_UPDATE message"""
+        members_to_add = parsed_message.fields.get("ADD")
+        members_to_remove = parsed_message.fields.get("REMOVE")
+        group_id = parsed_message.fields.get("GROUP_ID")
+        sender = parsed_message.fields.get("FROM")
+
+        if group_id in self.groups:
+            self._update_group(group_id, members_to_add, members_to_remove)
+
+            if self.verbose:
+                display_manager.log_debug(f"{group_id} updated")
+        else:
+            if self.verbose:
+                display_manager.log_warning(f"{sender} is trying to update a group ({group_id}) you are not in")
+
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
@@ -474,6 +491,21 @@ class LSNPPeer:
             # Preserve existing info, just update timestamp and potentially IP
             old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
             self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
+
+    def _update_group(self, group_id, members_to_add, members_to_remove):
+        # update locally for the sender
+            group = self.groups.get(group_id)
+            current_members = set(group["members"])
+
+            # add
+            for member in members_to_add:
+                if member and member not in current_members:
+                    current_members.add(member)
+            # remove
+            for member in members_to_remove:
+                current_members.discard(member)
+            # update
+            self.groups[group_id]["members"] = list(current_members)
 
     def _log_ip(self, ip_address):
         """Log and store IP address - logging itself is now conditional on verbose"""
@@ -670,6 +702,7 @@ class LSNPPeer:
         else:
             print("Group ID already exists.")
 
+    # TODO: Check if correct
     def send_group_message(self, group_id, content):
         current_time = time.time()
 
@@ -682,6 +715,27 @@ class LSNPPeer:
                 self.send_message_to_peer(user_id, msg)
 
             print(f"Message sent to: {target_users}")
+        else:
+            print("Group not found.")
+
+    # TODO: Check if correct
+    def send_group_update(self, group_id, add_members, remove_members):
+        current_time = time.time()
+        members_to_add = add_members.split(",")
+        members_to_remove = remove_members.split(",")
+
+        if group_id in self.groups:
+            target_users = (self.groups.get(group_id))["members"]
+            msg = self.message_builder.build_group_update(group_id, add_members, remove_members, current_time)
+
+            # send to all users listed
+            for user_id in target_users:
+                self.send_message_to_peer(user_id, msg)
+
+            # update local group
+            self._update_group(group_id, members_to_add, members_to_remove)
+
+            print(f"{group_id} updated.")
         else:
             print("Group not found.")
 
@@ -775,14 +829,35 @@ class LSNPPeer:
                 self.send_group_create(group_id, group_name, members_raw)
             else:
                 print("Usage: group_create <group_id> <group name> <member1,member2,...>")
+        # TODO: Check if working/correct
         elif cmd == "group_message":
-            if len(parts) > 3:
+            if len(parts) > 2:
                 group_id = parts[1]  
                 content = parts[2:]
 
-                self.send_group_dm(group_id, content)
+                self.send_group_message(group_id, content)
             else:
                 print("Usage: group_message <group_id> <content>")
+        # TODO: Check if working/correct
+        elif cmd == "group_update":
+            if len(parts) > 3:
+                group_id = parts[1]  
+                add = ""
+                remove = ""
+
+                if "-add" in parts:
+                    add_index = parts.index("-add")
+                    if add_index + 1 < len(parts):
+                        add = parts[add_index + 1]
+
+                if "-remove" in parts:
+                    remove_index = parts.index("-remove")
+                    if remove_index + 1 < len(parts):
+                        remove = parts[remove_index + 1]
+
+                self.send_group_update(group_id, add, remove)
+            else:
+                print("Usage: group_update <group_id> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
         elif cmd == "group":
             display_manager.print_groups(self.groups)
         # ✅
