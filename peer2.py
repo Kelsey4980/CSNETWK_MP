@@ -142,7 +142,8 @@ class LSNPPeer:
             # Debug log for parser failure is already handled by message_parser if verbose
             return None
         
-         # Handle different message types for peer discovery
+        # Handle different message types for peer discovery
+        # Insert handlers for other message types here (e.g., for storage logic)
         if parsed_message.message_type == MessageType.PROFILE:
             self._handle_profile_message(parsed_message)
         elif parsed_message.message_type == MessageType.PING:
@@ -162,7 +163,7 @@ class LSNPPeer:
         elif parsed_message.message_type == MessageType.GROUP_CREATE:
             self._handle_group_create(parsed_message)
 
-        # Insert handlers for other message types here (e.g., for storage logic)
+
         
         # Update last seen for any message with user identification
         user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
@@ -381,8 +382,6 @@ class LSNPPeer:
         else:
             if self.verbose:
                 display_manager.log_warning(f"{group_creator} is trying to add you in a group with a duplicate group ID ({group_id})")
-            
-
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -654,7 +653,8 @@ class LSNPPeer:
                 if self.user_id in target_users:
                     self.groups[group_id] = {
                         "name": group_name,
-                        "members": group_members
+                        "members": group_members,
+                        "creator": self.user_id
                     }
 
                 # send to all users listed
@@ -669,7 +669,21 @@ class LSNPPeer:
                 print("Group not created. Please make sure members are known.")
         else:
             print("Group ID already exists.")
-            
+
+    def send_group_message(self, group_id, content):
+        current_time = time.time()
+
+        if group_id in self.groups:
+            target_users = self.groups[group_id]["members"]
+            msg = self.message_builder.build_group_message(group_id, content, current_time)
+
+            # send to all users listed
+            for user_id in target_users:
+                self.send_message_to_peer(user_id, msg)
+
+            print(f"Message sent to: {target_users}")
+        else:
+            print("Group not found.")
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
@@ -761,6 +775,14 @@ class LSNPPeer:
                 self.send_group_create(group_id, group_name, members_raw)
             else:
                 print("Usage: group_create <group_id> <group name> <member1,member2,...>")
+        elif cmd == "group_message":
+            if len(parts) > 3:
+                group_id = parts[1]  
+                content = parts[2:]
+
+                self.send_group_dm(group_id, content)
+            else:
+                print("Usage: group_message <group_id> <content>")
         elif cmd == "group":
             display_manager.print_groups(self.groups)
         # ✅

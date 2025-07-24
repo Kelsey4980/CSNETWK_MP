@@ -184,6 +184,12 @@ class MessageParser:
                 message.validation_errors.append("GROUP_CRREATE message missing required fields")
                 message.is_valid = False
 
+        elif message.message_type == MessageType.GROUP_MESSAGE:
+            if not all(k in message.fields for k in ["FROM", "GROUP_ID", "CONTENT", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append("GROUP_MESSAGE message missing required fields")
+                message.is_valid = False
+
+
         else:
             # Unknown or unsupported type
             message.validation_errors.append("Unsupported or unknown message type")
@@ -262,6 +268,13 @@ class MessageParser:
                 group_name = message.fields.get("GROUP_NAME")
 
                 return f"{timestamp_str} You've been added to {group_name}"
+            
+            elif msg_type == MessageType.GROUP_MESSAGE:
+                # final: "bob@192.168.1.12 sent “Just uploaded the photos!”
+                sender = message.fields.get("FROM")
+                content = message.fields.get("CONTENT")
+
+                return f"{timestamp_str} {sender} send \"{content}\""
             
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display
