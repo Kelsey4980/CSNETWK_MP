@@ -179,6 +179,11 @@ class MessageParser:
                 message.validation_errors.append("ACK message missing MESSAGE_ID")
                 message.is_valid = False
 
+        elif message.message_type == MessageType.GROUP_CREATE:
+            if not all(k in message.fields for k in ["FROM", "GROUP_ID", "GROUP_NAME", "MEMBERS", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append("GROUP_CRREATE message missing required fields")
+                message.is_valid = False
+
         else:
             # Unknown or unsupported type
             message.validation_errors.append("Unsupported or unknown message type")
@@ -251,6 +256,12 @@ class MessageParser:
                 follower_display_name = message.get_display_name(peer_profiles)
 
                 return f"{timestamp_str} User {follower_display_name} has unfollowed you"
+            
+            elif msg_type == MessageType.GROUP_CREATE:
+                # final: "You’ve been added to Trip Buddies"
+                group_name = message.fields.get("GROUP_NAME")
+
+                return f"{timestamp_str} You've been added to {group_name}"
             
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display

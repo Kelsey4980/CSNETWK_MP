@@ -227,6 +227,25 @@ class MessageBuilder:
         
         return "\n".join(message_parts)
     
+    def build_group_create(self, group_id, group_name, group_members, timestamp):
+        """
+        Build a GROUP_CREATE message
+        Format: TYPE, FROM, GROUP_ID, GROUP_NAME, MEMBERS, TIMESTAMP, TOKEN
+        """
+        token = self.get_cached_token("group")
+        message_parts = [
+            f"TYPE: GROUP_CREATE",
+            f"FROM: {self.user_id}",
+            f"GROUP_ID: {group_id}",
+            f"GROUP_NAME: {group_name}",
+            f"MEMBERS: {group_members}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
     def validate_message_format(self, message: str) -> Dict[str, Any]:
         """
         Validate that a built message follows proper LSNP format

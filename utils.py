@@ -162,5 +162,18 @@ class DisplayManager:
         for user_id in followers:
             print(f"  - {user_id}")
 
+    def print_groups(self, groups):
+        """List all groups"""
+        if len(groups) == 0:
+            print("You don't have any groups yet")
+            return
+        
+        print("Your Groups:")
+        for group_id, group_data in groups.items():
+            print(f"{group_id} - {group_data['name']}")
+            for member in group_data["members"]:
+                print(f"\t{member}")
+
+
 # Create global display manager instance
 display_manager = DisplayManager()

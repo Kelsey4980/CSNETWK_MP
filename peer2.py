@@ -45,6 +45,7 @@ class LSNPPeer:
         self.followers = set()
         self.posts = {} # posts you sent, used for storing likes
         self.received_posts = {} # posts you received, used for sending likes/unlikes
+        self.groups = {} # group stored
         self.running = False
         self.verbose = verbose
         
@@ -158,6 +159,8 @@ class LSNPPeer:
             self._handle_likes(parsed_message)
         elif parsed_message.message_type == MessageType.UNLIKE:
             self._handle_unlikes(parsed_message)
+        elif parsed_message.message_type == MessageType.GROUP_CREATE:
+            self._handle_group_create(parsed_message)
 
         # Insert handlers for other message types here (e.g., for storage logic)
         
@@ -356,6 +359,31 @@ class LSNPPeer:
         else:
             print(f"User {user_id} is not following you.")
 
+    # TODO: Check if correct. also might need to add the verbose stuff
+    def _handle_group_create(self, parsed_message):
+        """Accept a GROUP_CREATE message"""
+        group_members = parsed_message.fields.get("MEMBERS")
+        target_users = group_members.split(",")
+        group_name = parsed_message.fields.get("GROUP_NAME")
+        group_id = parsed_message.fields.get("GROUP_ID")
+        group_creator = parsed_message.fields.get("FROM")
+
+        # [PROBLEM] :: not sure if this should be checked...
+        if group_id not in self.groups:
+            if self.user_id in target_users:
+                self.groups[group_id] = {
+                    "name": group_name,
+                    "members": group_members
+                }
+
+                if self.verbose:
+                    display_manager.log_debug(f"You are added to the group {group_name}({group_id}).")
+        else:
+            if self.verbose:
+                display_manager.log_warning(f"{group_creator} is trying to add you in a group with a duplicate group ID ({group_id})")
+            
+
+
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
@@ -370,6 +398,7 @@ class LSNPPeer:
             if claimed_ip != sender_ip:
                 if self.verbose:
                     display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
+                # [TO UPDATE]
                 # This portion is commented for testing purposes. Currently we are using VPN only, hence the IPs will
                 # always be different.
                 # return False
@@ -574,7 +603,6 @@ class LSNPPeer:
             user_id = self.received_posts[post_timestamp]["user_id"]
 
             if user_id in self.following:
-
                 if not self.received_posts[post_timestamp]["liking"]:
                     msg = self.message_builder.build_like(user_id, post_timestamp)
                     self.send_message_to_peer(user_id, msg)
@@ -594,7 +622,6 @@ class LSNPPeer:
     # TODO: Check if correct
     def send_unlike(self, post_timestamp):
         """Send an UNLIKE to a followed user's post"""
-
         if post_timestamp in self.received_posts.keys():
             user_id = self.received_posts[post_timestamp]["user_id"]
 
@@ -609,6 +636,40 @@ class LSNPPeer:
         else:
             print(f"Post with timestamp {post_timestamp} not found.")
 
+    # TODO: Check if correct
+    def send_group_create(self, group_id, group_name, group_members):
+        """Send a GROUP_CREATE to the members specified"""
+        current_time = time.time()
+        target_users = group_members.split(",")
+        target_ips = [user.split("@")[1] for user in target_users]
+
+        # [PROBLEM] :: this only checks if the ID is in the creator's list of groups
+        if group_id not in self.groups:
+            # target users must be known
+            if (target_users in self.known_peers) and (target_ips in self.known_ips):
+                msg = self.message_builder.build_group_create(group_id, group_name, group_members, current_time)
+
+                # [CLARIFY] :: this means that this is purely based on the MEMBERS field
+                # see if they are included in the list
+                if self.user_id in target_users:
+                    self.groups[group_id] = {
+                        "name": group_name,
+                        "members": group_members
+                    }
+
+                # send to all users listed
+                for user_id in target_users:
+                    self.send_message_to_peer(user_id, msg)
+
+                # print
+                print("Group created with:\n")
+                for user_id in target_users:
+                    print(f"\t{user_id}\n")
+            else:
+                print("Group not created. Please make sure members are known.")
+        else:
+            print("Group ID already exists.")
+            
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
@@ -687,8 +748,21 @@ class LSNPPeer:
         # ✅
         elif cmd == "following":
             display_manager.print_following_list(self.following)
+        # ✅
         elif cmd == "followers":
             display_manager.print_followers_list(self.followers)
+        # TODO: Check if working/correct
+        elif cmd == "group_create":
+            if len(parts) > 3:
+                group_id = parts[1]  
+                members_raw = parts[-1]
+                group_name = " ".join(parts[2:-1])
+
+                self.send_group_create(group_id, group_name, members_raw)
+            else:
+                print("Usage: group_create <group_id> <group name> <member1,member2,...>")
+        elif cmd == "group":
+            display_manager.print_groups(self.groups)
         # ✅
         elif cmd == "verbose":
             self.verbose = not self.verbose
