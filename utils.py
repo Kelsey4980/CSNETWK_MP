@@ -169,11 +169,14 @@ class DisplayManager:
             return
         
         print("Your Groups:")
-        for group_id, group_data in groups.items():
-            print(f"{group_id} - {group_data['name']}")
+        for group_key, group_data in groups.items():
+            print(f"Group Key: {group_key}")
+            print(f"  ID     : {group_data['id']}")
+            print(f"  Name   : {group_data['name']}")
+            print(f"  Creator: {group_data['creator']}")
+            print(f"  Members:")
             for member in group_data["members"]:
-                print(f"\t{member}")
-
+                print(f"    - {member}")
 
 # Create global display manager instance
 display_manager = DisplayManager()

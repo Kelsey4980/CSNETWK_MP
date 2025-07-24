@@ -286,6 +286,12 @@ class MessageParser:
 
                 return f"{timestamp_str} {sender} send \"{content}\""
             
+            elif msg_type == MessageType.GROUP_UPDATE:
+                # final: The group “Trip Buddies” member list was updated.
+                group_name = message.fields.get("GROUP_NAME")
+
+                return f"{timestamp_str} The group \"{group_name}\" member list was updated."
+            
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display
                 return ""

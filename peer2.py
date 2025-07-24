@@ -162,9 +162,10 @@ class LSNPPeer:
             self._handle_unlikes(parsed_message)
         elif parsed_message.message_type == MessageType.GROUP_CREATE:
             self._handle_group_create(parsed_message)
+        elif parsed_message.message_type == MessageType.GROUP_UPDATE:
+            self._handle_group_update(parsed_message)
 
 
-        
         # Update last seen for any message with user identification
         user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
         if user_id:
@@ -369,19 +370,32 @@ class LSNPPeer:
         group_id = parsed_message.fields.get("GROUP_ID")
         group_creator = parsed_message.fields.get("FROM")
 
-        # [PROBLEM] :: not sure if this should be checked...
-        if group_id not in self.groups:
-            if self.user_id in target_users:
-                self.groups[group_id] = {
-                    "name": group_name,
-                    "members": group_members
-                }
+        # create a key for storage
+        group_key = f"{group_id}|{group_creator}"
 
+        if self.user_id in target_users:
+            # if the group ID already exists in receipient's groups
+            duplicate_id_found = any(group_data["id"] == group_id for group_data in self.groups.values())
+            if duplicate_id_found:
                 if self.verbose:
-                    display_manager.log_debug(f"You are added to the group {group_name}({group_id}).")
+                    display_manager.log_warning(f"{group_creator} added you to a group with a duplicate group ID ({group_id})")
+                
+            # store the group details
+            self.groups[group_key] = {
+                "id": group_id,
+                "name": group_name,
+                "members": target_users,
+                "creator": group_creator
+            }
+
+            # also updates the known peers
+            self._save_group_peers(parsed_message)
+
+            if self.verbose:
+                display_manager.log_debug(f"You are added to the group '{group_name}'({group_id}) by {group_creator}")
         else:
             if self.verbose:
-                display_manager.log_warning(f"{group_creator} is trying to add you in a group with a duplicate group ID ({group_id})")
+                display_manager.log_warning(f"You received a GROUP_CREATE for '{group_name}' ({group_id}) by {group_creator}, but you're not listed as a member")
 
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_group_update(self, parsed_message):
@@ -389,16 +403,19 @@ class LSNPPeer:
         members_to_add = parsed_message.fields.get("ADD")
         members_to_remove = parsed_message.fields.get("REMOVE")
         group_id = parsed_message.fields.get("GROUP_ID")
-        sender = parsed_message.fields.get("FROM")
+        group_creator = parsed_message.fields.get("FROM") # assumes that the sender is also the creator
 
-        if group_id in self.groups:
-            self._update_group(group_id, members_to_add, members_to_remove)
+        group_key = f"{group_id}|{group_creator}"
+
+        if group_key in self.groups:
+            self._update_group(group_key, members_to_add, members_to_remove)
+            group_name = self.groups[group_key]["name"]
 
             if self.verbose:
-                display_manager.log_debug(f"{group_id} updated")
+                display_manager.log_debug(f"'{group_name}' ({group_id}) updated its members")
         else:
             if self.verbose:
-                display_manager.log_warning(f"{sender} is trying to update a group ({group_id}) you are not in")
+                display_manager.log_warning(f"You received a GROUP_UPDATE from {group_creator} to a group ({group_id}) you are not in")
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -414,8 +431,7 @@ class LSNPPeer:
             if claimed_ip != sender_ip:
                 if self.verbose:
                     display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
-                # [TO UPDATE]
-                # This portion is commented for testing purposes. Currently we are using VPN only, hence the IPs will
+                # [TO UPDATE] This portion is commented for testing purposes. Currently we are using VPN only, hence the IPs will
                 # always be different.
                 # return False
         except IndexError:
@@ -492,9 +508,9 @@ class LSNPPeer:
             old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
             self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
 
-    def _update_group(self, group_id, members_to_add, members_to_remove):
+    def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
-            group = self.groups.get(group_id)
+            group = self.groups.get(group_key)
             current_members = set(group["members"])
 
             # add
@@ -504,8 +520,9 @@ class LSNPPeer:
             # remove
             for member in members_to_remove:
                 current_members.discard(member)
+
             # update
-            self.groups[group_id]["members"] = list(current_members)
+            self.groups[group_key]["members"] = list(current_members)
 
     def _log_ip(self, ip_address):
         """Log and store IP address - logging itself is now conditional on verbose"""
@@ -531,6 +548,32 @@ class LSNPPeer:
         
         peer = self.known_peers.get(user_id)
         return peer[1] if peer else None
+    
+    def _save_group_peers(self, parsed_message):
+        group_name = parsed_message.fields.get("GROUP_NAME")
+        group_id = parsed_message.fields.get("GROUP_ID")
+
+        # save sender
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        self._log_ip(sender_ip)
+
+        # save groups
+        group_members = parsed_message.fields.get("MEMBERS")
+        target_users = group_members.split(",")
+
+        for user in target_users:
+            username = user.split("@")[0]
+            ip_add = self._find_peer_ip(user)
+
+            self._update_peer_info(user, username, ip_add)
+            self._log_ip(ip_add)
+
+        if self.verbose:
+            display_manager.log_debug(f"Known peers updated with the members of '{group_name}' ({group_id})")
 
     # ====== MESSAGE SENDING ======
     def send_message_to_peer(self, user_id, message):
@@ -674,43 +717,52 @@ class LSNPPeer:
         target_users = group_members.split(",")
         target_ips = [user.split("@")[1] for user in target_users]
 
+        group_key = f"{group_id}|{self.user_id}"
+
         # [PROBLEM] :: this only checks if the ID is in the creator's list of groups
-        if group_id not in self.groups:
+        if group_key not in self.groups:
             # target users must be known
             if (target_users in self.known_peers) and (target_ips in self.known_ips):
                 msg = self.message_builder.build_group_create(group_id, group_name, group_members, current_time)
 
-                # [CLARIFY] :: this means that this is purely based on the MEMBERS field
                 # see if they are included in the list
-                if self.user_id in target_users:
-                    self.groups[group_id] = {
-                        "name": group_name,
-                        "members": group_members,
-                        "creator": self.user_id
-                    }
+                self.groups[group_key] = {
+                    "id": group_id,
+                    "name": group_name,
+                    "members": group_members,
+                    "creator": self.user_id
+                }
 
                 # send to all users listed
                 for user_id in target_users:
                     self.send_message_to_peer(user_id, msg)
 
                 # print
-                print("Group created with:\n")
+                print(f"New group created {group_key} -- '{group_name}' ({group_id})")
+                print(f"Members:")
                 for user_id in target_users:
                     print(f"\t{user_id}\n")
             else:
                 print("Group not created. Please make sure members are known.")
         else:
-            print("Group ID already exists.")
+            print(f"You created a group with a group ID {group_id} that already exists.")
 
     # TODO: Check if correct
-    def send_group_message(self, group_id, content):
+    def send_group_message(self, group_key, content):
         current_time = time.time()
+        group_creator, group_id = group_key.split("|", 1)
 
-        if group_id in self.groups:
-            target_users = self.groups[group_id]["members"]
+        matching_key = None
+        for key, group in self.groups.items():
+            if group["id"] == group_id and group["creator"] == group_creator:
+                matching_key = key
+                break
+
+        if matching_key:
+            group = self.groups[matching_key]
+            target_users = group["members"]
             msg = self.message_builder.build_group_message(group_id, content, current_time)
 
-            # send to all users listed
             for user_id in target_users:
                 self.send_message_to_peer(user_id, msg)
 
@@ -832,12 +884,12 @@ class LSNPPeer:
         # TODO: Check if working/correct
         elif cmd == "group_message":
             if len(parts) > 2:
-                group_id = parts[1]  
+                group_key = parts[1]  
                 content = parts[2:]
 
-                self.send_group_message(group_id, content)
+                self.send_group_message(group_key, content)
             else:
-                print("Usage: group_message <group_id> <content>")
+                print("Usage: group_message <group_id>|<group_creator> <content>")
         # TODO: Check if working/correct
         elif cmd == "group_update":
             if len(parts) > 3:
