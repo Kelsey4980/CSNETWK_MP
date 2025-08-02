@@ -145,6 +145,8 @@ class LSNPPeer:
             self._handle_profile_message(parsed_message)
         elif parsed_message.message_type == MessageType.PING:
             self._handle_ping_message(parsed_message)
+        elif parsed_message.message_type == MessageType.DM:
+            self._handle_dm_message(parsed_message)
         elif parsed_message.message_type == MessageType.FOLLOW:
             self._handle_follow_message(parsed_message)
         elif parsed_message.message_type == MessageType.UNFOLLOW:
@@ -261,6 +263,16 @@ class LSNPPeer:
 
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
+
+    def _handle_dm_message(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
 
     def _handle_follow_message(self, parsed_message):
         """Accept a FOLLOW message from a specific user"""
@@ -530,6 +542,7 @@ class LSNPPeer:
                 self.send_follow(parts[1])
             else:
                 print("Usage: follow <user_id>")
+        # ✅ 
         elif cmd == "unfollow":
             if len(parts) > 1:
                 self.send_unfollow(parts[1])
