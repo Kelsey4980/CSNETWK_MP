@@ -185,7 +185,7 @@ class DisplayManager:
             data = f.read()
             encoded = base64.b64encode(data).decode("utf-8")
             mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-            return encoded, mime_type
+            return encoded, mime_type # avatar_data and avatar_type, respectively
 
 # Create global display manager instance
 display_manager = DisplayManager()
