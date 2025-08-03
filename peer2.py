@@ -258,13 +258,15 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         display_name = parsed_message.fields.get("DISPLAY_NAME")
         status = parsed_message.fields.get("STATUS", "")
+        avatar_data = parsed_message.fields.get("AVATAR_DATA", "")
+        avatar_type = parsed_message.fields.get("AVATAR_TYPE", "")
         
         # Use shared validation
         if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
             return
 
         # Update peer info
-        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
+        self._update_peer_info(user_id, display_name, avatar_data, avatar_type, parsed_message.sender_ip, status)
 
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
@@ -288,8 +290,13 @@ class LSNPPeer:
         sender_ip = self._find_peer_ip(sender_id)
         sender_username = sender_id.split('@')[0]
 
+        avatar_data = None
+        avatar_type = None
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, _, _, _ = self.known_peers[sender_id]
+
         # Update peer info
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
             
@@ -448,7 +455,7 @@ class LSNPPeer:
         
         return True
 
-    def _update_peer_info(self, user_id, display_name, ip, status=""):
+    def _update_peer_info(self, user_id, display_name, avatar_data, avatar_type, ip, status=""):
         """Update peer information and log updates conditionally."""
         current_time = time.time()
 
@@ -457,7 +464,7 @@ class LSNPPeer:
             return
 
         if user_id in self.known_peers:
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+            old_display_name, _, _,old_ip, old_status, _ = self.known_peers[user_id]
 
             name_changed = display_name != old_display_name
             status_changed = status != old_status
@@ -476,7 +483,7 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_new_peer(display_name, user_id, ip)
 
-        self.known_peers[user_id] = (display_name, ip, status, current_time)
+        self.known_peers[user_id] = (display_name, avatar_data, avatar_type, ip, status, current_time)
 
     def _update_peer_ping(self, user_id, ip):
         """Update peer last seen time for PING messages, preserving existing info."""
