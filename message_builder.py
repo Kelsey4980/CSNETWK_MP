@@ -1,0 +1,381 @@
+import time
+import secrets
+from typing import Optional, Dict, Any
+from enum import Enum
+from dictionary import MessageType
+
+# Default TTL configuration
+DEFAULT_TTL = 3600  # 1 hour default
+
+class MessageBuilder:
+    """
+    Message builder for core LSNP protocol types
+    Constructs properly formatted messages according to RFC specifications
+    """
+    
+    def __init__(self, user_id: str, display_name: str):
+        self.user_id = user_id
+        self.display_name = display_name
+        self.token_cache = {}  # Cache tokens to avoid regeneration
+    
+    def generate_message_id(self) -> str:
+        """Generate a unique message ID"""
+        return secrets.token_hex(8)
+    
+    def generate_token(self, scope: str = "chat", ttl_seconds: int = None) -> str:
+        """
+        Generate a token for message authentication
+        Format: user_id|expiry_timestamp|scope
+        """
+        if ttl_seconds is None:
+            ttl_seconds = DEFAULT_TTL
+        
+        expiry = int(time.time()) + ttl_seconds
+        token = f"{self.user_id}|{expiry}|{scope}"
+        
+        # Cache the token
+        self.token_cache[scope] = token
+        
+        print(f"[DEBUG] Generated token for {scope}: {token}, expires at {time.ctime(expiry)}")
+        return token
+    
+    def get_cached_token(self, scope: str = "chat", ttl_seconds: int = None) -> Optional[str]:
+        """Get cached token if valid, otherwise generate new one"""
+        if scope in self.token_cache:
+            token = self.token_cache[scope]
+            try:
+                _, expiry_str, _ = token.split('|')
+                expiry = int(expiry_str)
+                if time.time() < expiry - 60:  # Use if more than 1 minute left
+                    print(f"[DEBUG] Using cached token for {scope}: {token}, expires at {time.ctime(expiry)}")
+                    return token
+            except (ValueError, IndexError):
+                pass
+        
+        return self.generate_token(scope, ttl_seconds)
+    
+    def build_profile(self, status: str = "") -> str:
+        """
+        Build a PROFILE message
+        Format: TYPE, USER_ID, DISPLAY_NAME, [STATUS]
+        """
+        message_parts = [
+            f"TYPE: PROFILE",
+            f"USER_ID: {self.user_id}",
+            f"DISPLAY_NAME: {self.display_name}"
+        ]
+        
+        if status:
+            message_parts.append(f"STATUS: {status}")
+        
+        message_parts.append("")  # Empty line at end
+        return "\n".join(message_parts)
+    
+    def build_post(self, content: str, ttl_seconds: int = None) -> str:
+        """
+        Build a POST message
+        Format: TYPE, USER_ID, CONTENT, TTL, MESSAGE_ID, TOKEN
+        """
+        if ttl_seconds is None:
+            ttl_seconds = DEFAULT_TTL
+        
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("chat", ttl_seconds) # ttl_seconds is expiration time
+        
+        message_parts = [
+            f"TYPE: POST",
+            f"USER_ID: {self.user_id}",
+            f"CONTENT: {content}",
+            f"TTL: {ttl_seconds}",
+            f"MESSAGE_ID: {message_id}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_dm(self, to_user_id: str, content: str) -> str:
+        """
+        Build a DM (Direct Message) message
+        Format: TYPE, FROM, TO, CONTENT, TIMESTAMP, MESSAGE_ID, TOKEN
+        """
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("direct")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: DM",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"CONTENT: {content}",
+            f"TIMESTAMP: {timestamp}",
+            f"MESSAGE_ID: {message_id}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_follow(self, to_user_id: str) -> str:
+        """
+        Build a FOLLOW message
+        Format: TYPE, MESSAGE_ID, FROM, TO, TIMESTAMP, TOKEN
+        """
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("follow")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: FOLLOW",
+            f"MESSAGE_ID: {message_id}",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_unfollow(self, to_user_id: str) -> str:
+        """
+        Build an UNFOLLOW message
+        Format: TYPE, MESSAGE_ID, FROM, TO, TIMESTAMP, TOKEN
+        """
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("follow")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: UNFOLLOW",
+            f"MESSAGE_ID: {message_id}",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_like(self, to_user_id: str, post_timestamp: int, action: str = "LIKE") -> str:
+        """
+        Build a LIKE message
+        Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
+        """
+        token = self.get_cached_token("chat")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: LIKE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"POST_TIMESTAMP: {post_timestamp}",
+            f"ACTION: {action}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+
+    def build_unlike(self, to_user_id: str, post_timestamp: int, action: str = "UNLIKE") -> str:
+        """
+        Build an UNLIKE message
+        Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
+        """
+        token = self.get_cached_token("chat")
+        timestamp = int(time.time())
+
+        message_parts = [
+            f"TYPE: LIKE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"POST_TIMESTAMP: {post_timestamp}",
+            f"ACTION: {action}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+
+        return "\n".join(message_parts)
+    
+    def build_ping(self) -> str:
+        """
+        Build a PING message
+        Format: TYPE, USER_ID
+        """
+        message_parts = [
+            f"TYPE: PING",
+            f"USER_ID: {self.user_id}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_ack(self, message_id: str, status: str = "RECEIVED") -> str:
+        """
+        Build an ACK message
+        Format: TYPE, MESSAGE_ID, STATUS
+        """
+        message_parts = [
+            f"TYPE: ACK",
+            f"MESSAGE_ID: {message_id}",
+            f"STATUS: {status}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_group_create(self, group_id, group_name, group_members, timestamp):
+        """
+        Build a GROUP_CREATE message
+        Format: TYPE, FROM, GROUP_ID, GROUP_NAME, MEMBERS, TIMESTAMP, TOKEN
+        """
+        token = self.get_cached_token("group")
+        message_parts = [
+            f"TYPE: GROUP_CREATE",
+            f"FROM: {self.user_id}",
+            f"GROUP_ID: {group_id}",
+            f"GROUP_NAME: {group_name}",
+            f"MEMBERS: {group_members}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_group_message(self, group_id, content, timestamp):
+        """
+        Build a GROUP_MESSAGE message
+        Format: TYPE, FROM, GROUP_ID, CONTENT, TIMESTAMP, TOKEN
+        """
+        token = self.get_cached_token("group")
+        message_parts = [
+            f"TYPE: GROUP_MESSAGE",
+            f"FROM: {self.user_id}",
+            f"GROUP_ID: {group_id}",
+            f"CONTENT: {content}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_group_update(self, group_id, add_members, remove_members, timestamp):
+        """
+        Build a GROUP_MESSAGE message
+        Format: TYPE, FROM, GROUP_ID, ADD, REMOVE, TOKEN
+        """
+        token = self.get_cached_token("group")
+
+        if add_members and remove_members:
+            message_parts = [
+                f"TYPE: GROUP_MESSAGE",
+                f"FROM: {self.user_id}",
+                f"GROUP_ID: {group_id}",
+                f"ADD: {add_members}",
+                f"REMOVE: {remove_members}",
+                f"TIMESTAMP: {timestamp}",
+                f"TOKEN: {token}",
+                ""
+            ]
+        elif add_members:
+            message_parts = [
+                f"TYPE: GROUP_MESSAGE",
+                f"FROM: {self.user_id}",
+                f"GROUP_ID: {group_id}",
+                f"ADD: {add_members}",
+                f"TIMESTAMP: {timestamp}",
+                f"TOKEN: {token}",
+                ""
+            ]
+        elif remove_members:
+            message_parts = [
+                f"TYPE: GROUP_MESSAGE",
+                f"FROM: {self.user_id}",
+                f"GROUP_ID: {group_id}",
+                f"REMOVE: {remove_members}",
+                f"TIMESTAMP: {timestamp}",
+                f"TOKEN: {token}",
+                ""
+            ]
+        
+        return "\n".join(message_parts)
+    
+    def validate_message_format(self, message: str) -> Dict[str, Any]:
+        """
+        Validate that a built message follows proper LSNP format
+        """
+        lines = message.strip().split('\n')
+        validation_result = {
+            "valid": True,
+            "errors": [],
+            "warnings": []
+        }
+        
+        if not lines:
+            validation_result["valid"] = False
+            validation_result["errors"].append("Empty message")
+            return validation_result
+        
+        # Check for TYPE field
+        if not lines[0].startswith("TYPE: "):
+            validation_result["valid"] = False
+            validation_result["errors"].append("Missing TYPE field")
+        
+        # Check for proper field format
+        for i, line in enumerate(lines):
+            if line.strip() == "":
+                continue
+            
+            if ':' not in line:
+                validation_result["warnings"].append(f"Line {i+1} doesn't follow 'FIELD: value' format")
+            else:
+                field, value = line.split(':', 1)
+                field = field.strip()
+                value = value.strip()
+                
+                if not field:
+                    validation_result["errors"].append(f"Line {i+1} has empty field name")
+                if not value and field not in ["STATUS"]:  # STATUS can be empty
+                    validation_result["warnings"].append(f"Line {i+1} has empty value for field {field}")
+        
+        return validation_result
+    
+    def update_user_info(self, user_id: str = None, display_name: str = None):
+        """Update user information for future messages"""
+        if user_id:
+            self.user_id = user_id
+        if display_name:
+            self.display_name = display_name
+        
+        # Clear token cache when user info changes
+        self.token_cache.clear()
+    
+    def clear_token_cache(self):
+        """Clear all cached tokens"""
+        self.token_cache.clear()
+    
+    def get_token_info(self, scope: str = "chat") -> Dict[str, Any]:
+        """Get information about a cached token"""
+        if scope not in self.token_cache:
+            return {"exists": False}
+        
+        token = self.token_cache[scope]
+        try:
+            user_id, expiry_str, token_scope = token.split('|')
+            expiry = int(expiry_str)
+            
+            return {
+                "exists": True,
+                "user_id": user_id,
+                "expiry": expiry,
+                "scope": token_scope,
+                "expires_in": expiry - int(time.time()),
+                "is_valid": time.time() < expiry
+            }
+        except (ValueError, IndexError):
+            return {"exists": True, "valid": False, "error": "Invalid token format"}
