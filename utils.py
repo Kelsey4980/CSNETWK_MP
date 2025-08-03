@@ -1,6 +1,8 @@
 import secrets
 import time
 from typing import Optional, Dict, Set, Tuple
+import base64
+import mimetypes
 
 class DisplayManager:
     """
@@ -177,6 +179,13 @@ class DisplayManager:
             print(f"  Members:")
             for member in group_data["members"]:
                 print(f"    - {member}")
+
+    def load_avatar(path: str):
+        with open(path, "rb") as f:
+            data = f.read()
+            encoded = base64.b64encode(data).decode("utf-8")
+            mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            return encoded, mime_type
 
 # Create global display manager instance
 display_manager = DisplayManager()

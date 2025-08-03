@@ -18,7 +18,7 @@ class LSNPPeer:
     DISCOVERY_INTERVAL = 300
     
     # ====== INITIALIZATION ======
-    def __init__(self, username=None, display_name=None, verbose=False):
+    def __init__(self, username=None, display_name=None, avatar_path=None, verbose=False):
         # Socket setup ✅
         self.sock = socket(AF_INET, SOCK_DGRAM)
         self.sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -34,6 +34,7 @@ class LSNPPeer:
         self.local_ip = self._get_local_ip()
         self.username = username or f"user_{self.local_ip.split('.')[-1]}"
         self.user_id = f"{self.username}@{self.local_ip}"
+        self.avatar_path = avatar_path
         self.display_name = display_name or self.username
         self.status = "Online"
         
@@ -50,7 +51,8 @@ class LSNPPeer:
         self.verbose = verbose
         
         # Message handling ✅
-        self.message_builder = MessageBuilder(self.user_id, self.display_name)
+        avatar_data, avatar_type = display_manager.load_avatar(avatar_path)
+        self.message_builder = MessageBuilder(self.user_id, self.display_name, avatar_data, avatar_type)
         self.message_parser = MessageParser(verbose_mode=self.verbose)
         
         # Statistics ✅
@@ -934,6 +936,7 @@ def main():
     """Main function - parse arguments and start peer"""
     username = None
     display_name = None
+    avatar_path = None
     verbose = False
     
     # Parse command line arguments
@@ -947,6 +950,9 @@ def main():
         elif args[i] == "--name" and i + 1 < len(args):
             display_name = args[i + 1]
             i += 2
+        elif args[i] == "--avatar" and i + 1 < len(args):
+            avatar_path = args[i + 1]
+            i += 2
         elif args[i] == "--verbose":
             verbose = True
             i += 1
@@ -955,7 +961,7 @@ def main():
             sys.exit(1)
     
     # Create and start peer
-    peer = LSNPPeer(username=username, display_name=display_name, verbose=verbose)
+    peer = LSNPPeer(username=username, display_name=display_name, avatar_path=avatar_path, verbose=verbose)
     peer.start() # Start threads and broadcast initial profile
     display_manager.print_startup_complete() # Print startup complete message AFTER peer starts
     
