@@ -51,7 +51,12 @@ class LSNPPeer:
         self.verbose = verbose
         
         # Message handling ✅
-        avatar_data, avatar_type = display_manager.load_avatar(avatar_path) # for pfp
+        if self.avatar_path:
+            avatar_data, avatar_type = display_manager.load_avatar(avatar_path) # for pfp
+        else:
+            avatar_data = None
+            avatar_type = None
+
         self.message_builder = MessageBuilder(self.user_id, self.display_name, avatar_data, avatar_type)
         self.message_parser = MessageParser(verbose_mode=self.verbose)
         
