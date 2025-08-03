@@ -22,6 +22,11 @@ class MessageBuilder:
         """Generate a unique message ID"""
         return secrets.token_hex(8)
     
+    def generate_game_id(self) -> str:
+        """Generate a unique game ID"""
+        number = secrets.randbelow(256)  # Random number between 0 and 255
+        return f"g{number:03d}"
+    
     def generate_token(self, scope: str = "chat", ttl_seconds: int = None) -> str:
         """
         Generate a token for message authentication
@@ -302,6 +307,79 @@ class MessageBuilder:
                 f"TOKEN: {token}",
                 ""
             ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_invite(self, to_user_id: str, symbol: str) -> str:
+        """
+        Build a TICTACTOE_INVITE message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, SYMBOL, TIMESTAMP, TOKEN
+        """
+        game_id = self.generate_game_id()
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("game")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_INVITE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"SYMBOL: {symbol}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_move(self, to_user_id: str, symbol: str, position: str, turn: str) -> str:
+        """
+        Build a TICTACTOE_MOVE message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, POSITION, SYMBOL, TURN, TOKEN
+        """
+        game_id = self.generate_game_id()
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("game")
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_MOVE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"POSITION: {position}",
+            f"SYMBOL: {symbol}",
+            f"TURN: {turn}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_result(self, to_user_id: str, symbol: str, result: str, winning_line: str) -> str:
+        """
+        Build a TICTACTOE_RESULT message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, RESULT, SYMBOL, WINNING_LINE, TIMESTAMP
+        """
+        game_id = self.generate_game_id()
+        message_id = self.generate_message_id()
+        token = self.get_cached_token("game")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_RESULT",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"RESULT: {result}",
+            f"SYMBOL: {symbol}",
+            f"WINNING_LINE: {winning_line}",
+            f"TIMESTAMP: {timestamp}",
+            ""
+        ]
         
         return "\n".join(message_parts)
     

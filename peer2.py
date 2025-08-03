@@ -10,6 +10,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 import dictionary  # Only for MessageType
 from utils import display_manager
+import tictactoe.tictactoe
 
 class LSNPPeer:
     # ====== CLASS CONSTANTS ======
@@ -164,6 +165,12 @@ class LSNPPeer:
             self._handle_group_create(parsed_message)
         elif parsed_message.message_type == MessageType.GROUP_UPDATE:
             self._handle_group_update(parsed_message)
+        elif parsed_message.message_type == MessageType.TICTACTOE_INVITE:
+            self._handle_tictactoe_invite(parsed_message)
+        elif parsed_message.message_type == MessageType.TICTACTOE_MOVE:
+            self._handle_tictactoe_move(parsed_message)
+        elif parsed_message.message_type == MessageType.TICTACTOE_RESULT:
+            self._handle_tictactoe_result(parsed_message)
 
 
         # Update last seen for any message with user identification
@@ -416,6 +423,36 @@ class LSNPPeer:
         else:
             if self.verbose:
                 display_manager.log_warning(f"You received a GROUP_UPDATE from {group_creator} to a group ({group_id}) you are not in")
+
+    def _handle_tictactoe_invite(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
+
+    def _handle_tictactoe_move(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
+
+    def _handle_tictactoe_result(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -790,6 +827,68 @@ class LSNPPeer:
             print(f"{group_id} updated.")
         else:
             print("Group not found.")
+    
+    def send_tictactoe_invite(self, target_user_id, symbol):
+        """Send a TICTACOE_INVITE message to a specific user"""
+
+        if not symbol.strip():
+            print("TICTACTOE_INVITE symbol cannot be empty.")
+            return
+        
+        # Quick check if user_id is a known peer
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_tictactoe_invite(target_user_id, symbol)
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"TICTACTOE Invite sent to {target_user_id}")
+        else:
+            print(f"User {target_user_id} not found.")
+    
+    def send_tictactoe_move(self, target_user_id, symbol, position):
+        """Send a TICTACOE_MOVE message to a specific user"""
+
+        if not symbol.strip():
+            print("TICTACTOE_MOVE symbol cannot be empty.")
+            return
+
+        if not position.strip():
+            print("TICTACTOE_MOVE position cannot be empty.")
+            return
+        
+        # Temporary Value
+        turn = "4"
+        
+        # Quick check if user_id is a known peer
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_tictactoe_move(target_user_id, symbol, position, turn)
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"TICTACTOE move played: {symbol} at position {position}")
+        else:
+            print(f"User {target_user_id} not found.")
+    
+    def send_tictactoe_result(self, target_user_id, symbol):
+        """Send a TICTACOE_RESULT message to a specific user"""
+
+        if not symbol.strip():
+            print("TICTACTOE_MOVE symbol cannot be empty.")
+            return
+        
+        # Temporary Values
+        result = "WIN"
+        winning_line = "0,1,2"
+        
+        # Quick check if user_id is a known peer
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_tictactoe_result(target_user_id, symbol, result, winning_line)
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"TICTACTOE Result: {result}")
+        else:
+            print(f"User {target_user_id} not found.")
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
@@ -910,6 +1009,31 @@ class LSNPPeer:
                 self.send_group_update(group_id, add, remove)
             else:
                 print("Usage: group_update <group_id> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_invite":
+            if len(parts) > 2:
+                target_user = parts[1]
+                symbol = parts[2]
+                self.send_tictactoe_invite(target_user, symbol)
+            else:
+                print("Usage: tictactoe_invite <user_id> <symbol>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_move":
+            if len(parts) > 3:
+                target_user = parts[1]
+                position = parts[2]
+                symbol = parts[3]
+                self.send_tictactoe_move(target_user, symbol, position)
+            else:
+                print("Usage: tictactoe_move <user_id> <symbol> <position>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_result":
+            if len(parts) > 2:
+                target_user = parts[1]
+                symbol = parts[2]
+                self.send_tictactoe_result(target_user, symbol)
+            else:
+                print("Usage: tictactoe_move <user_id> <symbol> <position>")
         elif cmd == "group":
             display_manager.print_groups(self.groups)
         # ✅

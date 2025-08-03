@@ -199,6 +199,41 @@ class MessageParser:
             if "ADD" not in message.fields and "REMOVE" not in message.fields:
                 message.validation_errors.append("GROUP_UPDATE must include ADD and/or REMOVE")
                 message.is_valid = False
+
+        elif message.message_type == MessageType.TICTACTOE_INVITE:
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append(f"{message.message_type.value} message missing required fields")
+                message.is_valid = False
+
+            if message.fields.get("SYMBOL") not in ["X", "O"]:
+                message.validation_errors.append(f"{message.message_type.value} symbol must be 'X' or 'O'")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.TICTACTOE_MOVE:
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "POSITION", "TURN", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append(f"{message.message_type.value} message missing required fields")
+                message.is_valid = False
+
+            if message.fields.get("SYMBOL") not in ["X", "O"]:
+                message.validation_errors.append(f"{message.message_type.value} symbol must be 'X' or 'O'")
+                message.is_valid = False
+
+            if message.fields.get("POSITION") not in [str(i) for i in range(9)]:
+                message.validation_errors.append(f"{message.message_type.value} position must be a number between 0 and 8")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.TICTACTOE_RESULT:
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "RESULT", "WINNING_LINE", "TIMESTAMP"]):
+                message.validation_errors.append(f"{message.message_type.value} message missing required fields")
+                message.is_valid = False
+
+            if message.fields.get("SYMBOL") not in ["X", "O"]:
+                message.validation_errors.append(f"{message.message_type.value} symbol must be 'X' or 'O'")
+                message.is_valid = False
+
+            if message.fields.get("RESULT") not in ["WIN", "LOSE", "DRAW"]:
+                message.validation_errors.append(f"{message.message_type.value} result must be 'WIN', 'LOSE', or 'DRAW'")
+                message.is_valid = False
             
         else:
             # Unknown or unsupported type
@@ -291,6 +326,38 @@ class MessageParser:
                 group_name = message.fields.get("GROUP_NAME")
 
                 return f"{timestamp_str} The group \"{group_name}\" member list was updated."
+            
+            elif msg_type == MessageType.TICTACTOE_INVITE:
+                # final: “User alice is inviting you to play tic-tac-toe”
+                sender_user_id = message.fields.get("FROM")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} User {sender_display_name} is inviting you to play tic-tac-toe"
+            
+            elif msg_type == MessageType.TICTACTOE_MOVE:
+                # final: “User alice played X at position 5”
+                sender_user_id = message.fields.get("FROM")
+                sender_display_name = message.get_display_name(peer_profiles)
+                symbol = message.fields.get("SYMBOL")
+                position = message.fields.get("POSITION")
+
+                return f"{timestamp_str} User {sender_display_name} played {symbol} at position {position}"
+            
+            elif msg_type == MessageType.TICTACTOE_RESULT:
+                # final: “User alice (X) won with 0,1,2” OR “You (X) won with 0,1,2” OR "The game ended in a draw"
+                sender_user_id = message.fields.get("FROM")
+                sender_display_name = message.get_display_name(peer_profiles)
+                symbol = message.fields.get("SYMBOL")
+                current_user_symbol = "X" if symbol == "O" else "O"
+                result = message.fields.get("RESULT")
+                winning_line = message.fields.get("WINNING_LINE")
+
+                if result == "WIN":
+                    return f"{timestamp_str} User {sender_display_name} ({symbol}) won with {winning_line}"
+                elif result == "LOSE":
+                    return f"{timestamp_str} You ({current_user_symbol}) won with {winning_line}"
+                elif result == "DRAW":
+                    return f"{timestamp_str} The game ended in a draw"
             
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display
