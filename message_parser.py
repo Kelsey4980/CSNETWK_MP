@@ -199,6 +199,11 @@ class MessageParser:
             if "ADD" not in message.fields and "REMOVE" not in message.fields:
                 message.validation_errors.append("GROUP_UPDATE must include ADD and/or REMOVE")
                 message.is_valid = False
+
+        elif message.message_type == MessageType.REVOKE:
+            if not all(k in message.fields for k in ["TOKEN"]):
+                message.validation_errors.append("REVOKE message missing required fields")
+                message.is_valid = False
             
         else:
             # Unknown or unsupported type
@@ -291,6 +296,10 @@ class MessageParser:
                 group_name = message.fields.get("GROUP_NAME")
 
                 return f"{timestamp_str} The group \"{group_name}\" member list was updated."
+            
+            elif msg_type == MessageType.REVOKE:
+                # final: do not display anything (handled by verbose log in LSNPPeer)
+                return ""
             
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display

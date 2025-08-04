@@ -305,6 +305,19 @@ class MessageBuilder:
         
         return "\n".join(message_parts)
     
+    def build_revoke(self, token):
+        """
+        Build a REVOKE message
+        Format: TYPE, TOKEN
+        """
+
+        message_parts = {
+            "TYPE": "REVOKE",
+            "TOKEN": token
+        }
+        
+        return "\n".join(message_parts)
+    
     def validate_message_format(self, message: str) -> Dict[str, Any]:
         """
         Validate that a built message follows proper LSNP format

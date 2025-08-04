@@ -4,10 +4,13 @@ import sys
 import threading
 import time
 import secrets
+
 from message_builder import MessageBuilder
 from message_parser import MessageParser, MessageType
+from backend_security import BackendSecurity
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
+
 import dictionary  # Only for MessageType
 from utils import display_manager
 
@@ -46,12 +49,15 @@ class LSNPPeer:
         self.posts = {} # posts you sent, used for storing likes
         self.received_posts = {} # posts you received, used for sending likes/unlikes
         self.groups = {} # group stored
+        self.revoked_tokens_others = [] # revoked tokens from others
+        self.revoked_tokens_self = [] # revoked tokens from self
         self.running = False
         self.verbose = verbose
         
         # Message handling ✅
         self.message_builder = MessageBuilder(self.user_id, self.display_name)
         self.message_parser = MessageParser(verbose_mode=self.verbose)
+        self.backend_security = BackendSecurity(self.revoked_tokens_self, self.revoked_tokens_others) # [TO UPDATE] not yet used
         
         # Statistics ✅
         self.stats = {
@@ -399,7 +405,7 @@ class LSNPPeer:
 
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_group_update(self, parsed_message):
-        """Acept a GROUP_UPDATE message"""
+        """Accept a GROUP_UPDATE message"""
         members_to_add = parsed_message.fields.get("ADD")
         members_to_remove = parsed_message.fields.get("REMOVE")
         group_id = parsed_message.fields.get("GROUP_ID")
@@ -417,6 +423,22 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_warning(f"You received a GROUP_UPDATE from {group_creator} to a group ({group_id}) you are not in")
 
+    def _handle_revoke_message(self, parsed_message):
+        """Accept a REVOKE message"""
+        token = parsed_message.fields.get("TOKEN")
+
+         # check if token is already revoked
+        if token in self.revoked_tokens_others:
+            if self.verbose:
+                display_manager.log_debug(f"Received REVOKE for an already revoked token: {token}")
+            return
+
+        # add to revoked_tokens_others list
+        self.revoked_tokens_others.append(token)
+
+        if self.verbose:
+            display_manager.log_debug(f"Token revoked by peer: {token}")
+
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
@@ -431,8 +453,7 @@ class LSNPPeer:
             if claimed_ip != sender_ip:
                 if self.verbose:
                     display_manager.log_warning(f"IP mismatch: USER_ID claims {claimed_ip} but sent from {sender_ip}")
-                # [TO UPDATE] This portion is commented for testing purposes. Currently we are using VPN only, hence the IPs will
-                # always be different.
+                # [TO UPDATE] This portion is commented for testing purposes. Currently we are using VPN only, hence the IPs will always be different.
                 # return False
         except IndexError:
             if self.verbose:
@@ -791,6 +812,37 @@ class LSNPPeer:
         else:
             print("Group not found.")
 
+    # TODO: Check if correct
+    def send_revoke(self, token):
+        current_time = time.time()
+
+        if token in self.revoked_tokens_self:
+            print(f"Token {token} is already revoked by you.")
+            return
+        
+        # check if the token to be revoked is a token from the sender
+        try:
+            user_part = token.split("|")[0] 
+            user_id = user_part.split("@")[0]
+        except (IndexError, ValueError):
+            print(f"Invalid token format: {token}")
+            return
+
+        if user_id != self.user_id:
+            print(f"Cannot revoke token {token} — it does not belong to you.")
+            return
+
+        # add token to self-revoked list
+        self.revoked_tokens_self.append(token)
+        msg = self.message_builder.build_revoke(token, current_time)
+
+        # broadcast to all known peers
+        # [TO UPDATE] clarify scope 
+        for peer_id in self.known_peers:
+            self.send_message_to_peer(peer_id, msg)
+
+        print(f"Revoked token: {token}")
+
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
         """Handle user commands"""
@@ -910,9 +962,17 @@ class LSNPPeer:
                 self.send_group_update(group_id, add, remove)
             else:
                 print("Usage: group_update <group_id> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
+        # TODO: Check if working/correct
         elif cmd == "group":
             display_manager.print_groups(self.groups)
-        # ✅
+        # TODO: Check if working/correct
+        elif cmd == "revoke":
+            if len(parts) > 1:
+                token = parts[1]
+                self.send_revoke(token)
+            else:
+                print("Usage: revoke <TOKEN>")
+        # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":
             self.verbose = not self.verbose
             self.message_parser.verbose_mode = self.verbose # Update parser's verbose mode
@@ -924,8 +984,10 @@ class LSNPPeer:
         elif cmd in ["exit", "quit"]:
             self.stop()
             sys.exit(0)
+        # ✅
         elif cmd == "help":
             display_manager.print_help()
+        # ✅
         else:
             print(f"Unknown command: {cmd}. Type 'help' for available commands.")
 
