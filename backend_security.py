@@ -1,0 +1,54 @@
+import time
+from dictionary import MESSAGE_TYPE_TO_SCOPE, MessageType, MessageScope 
+
+class BackendSecurity:
+     """
+     Handles token validation and scoping
+     """
+
+     def __init__(self, revoked_tokens_self, revoked_tokens_others):
+          self.revoked_tokens_self = revoked_tokens_self
+          self.revoked_tokens_others = revoked_tokens_others
+
+     def is_token_valid(self, token, type):
+          current_time = time.time()
+
+          try:
+               # check if the token format is valid
+               token_parts = token.split("|")
+               if len(token_parts) != 3:
+                    print(f"Invalid token format: {token}")
+                    return False
+               
+               user_id, timestamp_str, scope = token_parts
+               timestamp = float(timestamp_str)
+
+               # [1] check if not yet expired
+               if current_time > timestamp:
+                    print(f"Token expired: {token}")
+                    return False
+               
+               # [2] check if right scope
+               scope_check = self.is_scope_valid(scope, type)
+               if (not scope_check):
+                    return False
+               
+               # [3] check if revoked
+               if token in self.revoked_tokens_self or token in self.revoked_tokens_others:
+                    print(f"Token revoked: {token}")
+                    return False
+               
+               return True
+            
+          except Exception as e:
+               print(f"Token validation error: {e}")
+               return False
+          
+     def is_scope_valid(self, scope, type):
+          expected_scope = MESSAGE_TYPE_TO_SCOPE.get(type)
+
+          if expected_scope is None:
+               print(f"Warning: No scope mapping found for message type: {type}")
+               return False
+          
+          return scope == expected_scope.value
