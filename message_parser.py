@@ -245,11 +245,19 @@ class MessageParser:
                 return f"{timestamp_str} POST from {display_name}: {content}"
             
             elif msg_type == MessageType.DM:
-                # dm: Show only the display_name (user_id if display name is not recorded) and content
+                # dm: Show only the display_name (user_id if display name is not recorded) and content (and profile picture)
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
+                avatar_data = message.fields.get("AVATAR_DATA", "")
+                avatar_type = message.fields.get("AVATAR_TYPE", "")
                 content = message.fields.get("CONTENT", "")
-                return f"{timestamp_str} DM from {display_name}: {content}"
+
+                pfp_data = f"AVATAR_DATA: {avatar_data} AVATAR_TYPE: {avatar_type}" if avatar_data and avatar_type else ""
+
+                if avatar_data and avatar_type:
+                    return f"{timestamp_str} DM from {display_name}{pfp_data}: {content}"
+                else:
+                    return f"{timestamp_str} DM from {display_name}: {content}"
             
             elif msg_type == MessageType.PING:
                 # ping: do not display anything

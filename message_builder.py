@@ -70,6 +70,7 @@ class MessageBuilder:
         if status:
             message_parts.append(f"STATUS: {status}")
 
+        # for avatar
         if self.avatar_data and self.avatar_type:
             message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
             message_parts.append(f"AVATAR_ENCODING: base64")
@@ -120,6 +121,12 @@ class MessageBuilder:
             f"TOKEN: {token}",
             ""
         ]
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
         
         return "\n".join(message_parts)
     
