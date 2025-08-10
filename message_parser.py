@@ -208,7 +208,7 @@ class MessageParser:
                 message.is_valid = False
         
         elif message.message_type == MessageType.FILE_OFFER:
-            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "TIMESTAMP", "TOKEN"]):
+            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "DESCRIPTION", "TIMESTAMP", "TOKEN"]):
                 message.validation_errors.append("FILE_OFFER message missing required fields")
                 message.is_valid = False
 
@@ -264,7 +264,11 @@ class MessageParser:
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
                 content = message.fields.get("CONTENT", "")
-                return f"{timestamp_str} POST from {display_name}: {content}"
+                timestamp = message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
+                ttl_sec = message.fields.get("TTL")
+
+                post_time = float(timestamp) - float(ttl_sec)  # subtracts ttl from post time
+                return f"{timestamp_str}|{post_time} POST from {display_name}: {content}"
             
             elif msg_type == MessageType.DM:
                 # dm: Show only the display_name (user_id if display name is not recorded) and content
@@ -280,6 +284,22 @@ class MessageParser:
             elif msg_type == MessageType.ACK:
                 # ack: do not display anything (handled by verbose log in LSNPPeer)
                 return ""
+            
+            elif msg_type == MessageType.LIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} likes your post [{post_timestamp}]"
+            
+            elif msg_type == MessageType.UNLIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} unlikes your post [{post_timestamp}]"
             
             elif msg_type == MessageType.FOLLOW:
                 # final: “User alice has followed you”
@@ -320,11 +340,12 @@ class MessageParser:
                 return ""
 
             elif msg_type == MessageType.FILE_OFFER:
-                # "User alice is sending you a file do you accept?"
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
                 filename = message.fields.get("FILENAME", "")
-                return f"{timestamp_str} User {display_name} is sending you a file ({filename}). Do you accept?"
+                file_id = message.fields.get("FILEID", "")
+                description = message.fields.get("DESCRIPTION", "")
+                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n        File ID: {file_id}\n        Description: {description}\n        NOTE: Use 'accept_file {file_id}' to accept or 'ignore_file {file_id}' to ignore."
 
             elif msg_type == MessageType.FILE_CHUNK:
                 # Do not print anything until all chunks are completed
