@@ -1005,13 +1005,23 @@ class LSNPPeer:
             print("Group not found.")
 
     # TODO: Check if correct
-    def send_group_update(self, group_id, add_members, remove_members):
+    def send_group_update(self, group_key, add_members, remove_members):
         current_time = time.time()
         members_to_add = add_members.split(",")
         members_to_remove = remove_members.split(",")
 
-        if group_id in self.groups:
-            target_users = (self.groups.get(group_id))["members"]
+        group_id, group_creator = group_key.split("|", 1)
+
+        matching_key = None
+        for key, group in self.groups.items():
+            if group["id"] == group_id and group["creator"] == group_creator:
+                matching_key = key
+                break
+
+        if matching_key:
+            group = self.groups[matching_key]
+
+            target_users = group["members"]
             msg = self.message_builder.build_group_update(group_id, add_members, remove_members, current_time)
 
             # send to all users listed
@@ -1490,7 +1500,7 @@ class LSNPPeer:
         # TODO: Check if working/correct
         elif cmd == "group_update":
             if len(parts) > 3:
-                group_id = parts[1]  
+                group_key = parts[1]  
                 add = ""
                 remove = ""
 
@@ -1504,7 +1514,7 @@ class LSNPPeer:
                     if remove_index + 1 < len(parts):
                         remove = parts[remove_index + 1]
 
-                self.send_group_update(group_id, add, remove)
+                self.send_group_update(group_key, add, remove)
             else:
                 print("Usage: group_update <group_id> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
         # TODO: Check if working/correct
