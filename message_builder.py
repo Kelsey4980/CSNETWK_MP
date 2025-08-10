@@ -312,10 +312,11 @@ class MessageBuilder:
         """
 
         message_parts = {
-            "TYPE": "REVOKE",
-            "TOKEN": token
+            f"TYPE: REVOKE",
+            f"TOKEN: {token}",
+            ""
         }
-        
+
         return "\n".join(message_parts)
     
     def build_file_offer(self, to_user_id: str, filename: str, filesize: int, filetype: str, description: str = "") -> str:

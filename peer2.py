@@ -209,6 +209,8 @@ class LSNPPeer:
             self._handle_file_chunk_message(parsed_message)
         elif parsed_message.message_type == MessageType.FILE_RECEIVED:
             self._handle_file_received_message(parsed_message)
+        elif parsed_message.message_type == MessageType.REVOKE:
+            self._handle_revoke_message(parsed_message)
         elif parsed_message.message_type == MessageType.ACK:
             self._handle_ack_message(parsed_message)
             return parsed_message
@@ -966,8 +968,7 @@ class LSNPPeer:
         
         # check if the token to be revoked is a token from the sender
         try:
-            user_part = token.split("|")[0] 
-            user_id = user_part.split("@")[0]
+            user_id = token.split("|")[0] 
         except (IndexError, ValueError):
             print(f"Invalid token format: {token}")
             return
@@ -978,7 +979,7 @@ class LSNPPeer:
 
         # add token to self-revoked list
         self.revoked_tokens_self.append(token)
-        msg = self.message_builder.build_revoke(token, current_time)
+        msg = self.message_builder.build_revoke(token)
 
         # broadcast to all known peers
         # [TO UPDATE] clarify scope 
@@ -1493,6 +1494,9 @@ class LSNPPeer:
                         print(f"  {msg_id}: {ack_info['retries']}/{self.max_retries} retries, {elapsed:.1f}s elapsed")
                 else:
                     print("No pending ACKs")
+
+        elif cmd == "revoked_tokens_self":
+            print(self.revoked_tokens_self)
 
         # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":
