@@ -511,36 +511,36 @@ class LSNPPeer:
             display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
 
     def _handle_file_offer_message(self, parsed_message):
-    """Handle FILE_OFFER messages with automatic acceptance/rejection"""
-    sender_id = parsed_message.fields.get("FROM")
-    file_id = parsed_message.fields.get("FILEID")
-    filename = parsed_message.fields.get("FILENAME")
-    filesize = parsed_message.fields.get("FILESIZE")
-    filetype = parsed_message.fields.get("FILETYPE")
-    description = parsed_message.fields.get("DESCRIPTION", "")
-    
-    # Validate sender
-    if not self._validate_user_id_and_ip(sender_id, parsed_message.sender_ip):
-        return
-    
-    # Store pending file offer
-    self.pending_file_offers[file_id] = {
-        "sender": sender_id,
-        "filename": filename,
-        "filesize": int(filesize),
-        "filetype": filetype,
-        "description": description,
-        "timestamp": time.time(),
-        "accepted": None  # None = pending, True = accepted, False = rejected
-    }
-    
-    # Update peer info
-    sender_username = sender_id.split('@')[0]
-    self._update_peer_info(sender_id, sender_username, parsed_message.sender_ip)
-    self._log_ip(parsed_message.sender_ip)
-    
-    if self.verbose:
-        display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
+        """Handle FILE_OFFER messages with automatic acceptance/rejection"""
+        sender_id = parsed_message.fields.get("FROM")
+        file_id = parsed_message.fields.get("FILEID")
+        filename = parsed_message.fields.get("FILENAME")
+        filesize = parsed_message.fields.get("FILESIZE")
+        filetype = parsed_message.fields.get("FILETYPE")
+        description = parsed_message.fields.get("DESCRIPTION", "")
+        
+        # Validate sender
+        if not self._validate_user_id_and_ip(sender_id, parsed_message.sender_ip):
+            return
+        
+        # Store pending file offer
+        self.pending_file_offers[file_id] = {
+            "sender": sender_id,
+            "filename": filename,
+            "filesize": int(filesize),
+            "filetype": filetype,
+            "description": description,
+            "timestamp": time.time(),
+            "accepted": None  # None = pending, True = accepted, False = rejected
+        }
+        
+        # Update peer info
+        sender_username = sender_id.split('@')[0]
+        self._update_peer_info(sender_id, sender_username, parsed_message.sender_ip)
+        self._log_ip(parsed_message.sender_ip)
+        
+        if self.verbose:
+            display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
 
     def _handle_file_chunk_message(self, parsed_message):
         """Handle FILE_CHUNK messages - only accept if file was explicitly accepted"""

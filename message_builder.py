@@ -47,7 +47,6 @@ class MessageBuilder:
                 _, expiry_str, _ = token.split('|')
                 expiry = int(expiry_str)
                 if time.time() < expiry - 60:  # Use if more than 1 minute left
-                    print(f"[DEBUG] Using cached token for {scope}: {token}, expires at {time.ctime(expiry)}")
                     return token
             except (ValueError, IndexError):
                 pass
