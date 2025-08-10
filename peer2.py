@@ -894,6 +894,7 @@ class LSNPPeer:
                 self.send_message_to_peer(user_id, msg)
 
                 self.received_posts[post_timestamp]["liking"] = False
+                print(f"You unliked post made at {post_timestamp} from {user_id}")
             else:
                 print(f"You have not liked post made at {post_timestamp} from {user_id}")
 
