@@ -940,15 +940,21 @@ class LSNPPeer:
     def send_group_create(self, group_id, group_name, group_members):
         """Send a GROUP_CREATE to the members specified"""
         current_time = time.time()
+
         target_users = group_members.split(",")
+        target_users = [user for user in target_users if user != self.user_id]
         target_ips = [user.split("@")[1] for user in target_users]
 
+        peer_ids = list(self.known_peers.keys())
+        
         group_key = f"{group_id}|{self.user_id}"
+
+        print(target_users, peer_ids)
 
         # [PROBLEM] :: this only checks if the ID is in the creator's list of groups
         if group_key not in self.groups:
             # target users must be known
-            if (target_users in self.known_peers) and (target_ips in self.known_ips):
+            if all(user in peer_ids for user in target_users):
                 msg = self.message_builder.build_group_create(group_id, group_name, group_members, current_time)
 
                 # see if they are included in the list
@@ -1554,10 +1560,8 @@ class LSNPPeer:
                 else:
                     print("No pending ACKs")
 
-        elif cmd == "revoked_tokens_self":
+        elif cmd == "view_revoked_tokens":
             print(self.revoked_tokens_self)
-
-        elif cmd == "revoked_tokens_others":
             print(self.revoked_tokens_others)
 
         elif cmd == "view_posts":
