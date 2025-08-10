@@ -135,18 +135,27 @@ class LSNPPeer:
                 if sender_user_id == self.user_id:
                     continue
 
+                msg_type = parsed_message.message_type
+                msg_id = parsed_message.fields.get("MESSAGE_ID")
+
+                # Validate token for message types with TOKEN field
+                no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK}
+
+                # Validate Token
+                token_pass = True
+                if msg_type not in no_token_types:
+                    token_pass = self.backend_security.is_token_valid(parsed_message.fields.get("TOKEN"), msg_type)
+
+                    if not token_pass:
+                        if self.verbose:
+                            display_manager.log_debug(f"You received a message from {sender_user_id} with invalid token.")
+
+                        continue
+
                 # Process message (this handles ACKs internally now)
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
                     continue
-                
-                msg_type = parsed_message.message_type
-                msg_id = parsed_message.fields.get("MESSAGE_ID")
-
-                # Validate Token
-                token_pass = False
-                token_pass = self.backend_security.is_token_valid(parsed_message.fields.get("TOKEN"), msg_type.name)
-                print(token_pass)
                 
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
                 no_ack_types = {MessageType.ACK}

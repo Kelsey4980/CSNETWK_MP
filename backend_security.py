@@ -13,7 +13,7 @@ class BackendSecurity:
      def is_token_valid(self, token, type):
           current_time = time.time()
 
-          print(token, type)
+          # print("1 ", token, type)
 
           try:
                # check if the token format is valid
@@ -25,6 +25,8 @@ class BackendSecurity:
                user_id, timestamp_str, scope = token_parts
                timestamp = float(timestamp_str)
 
+               # print("2 ", user_id, timestamp_str, scope)
+
                # [1] check if not yet expired
                if current_time > timestamp:
                     print(f"Token expired: {token}")
@@ -33,6 +35,7 @@ class BackendSecurity:
                # [2] check if right scope
                scope_check = self.is_scope_valid(scope, type)
                if (not scope_check):
+                    print(f"Token scope invalid: {token}")
                     return False
                
                # [3] check if revoked
@@ -48,7 +51,7 @@ class BackendSecurity:
           
      def is_scope_valid(self, scope, type):
           expected_scope = MESSAGE_TYPE_TO_SCOPE.get(type)
-
+          
           if expected_scope is None:
                print(f"Warning: No scope mapping found for message type: {type}")
                return False
