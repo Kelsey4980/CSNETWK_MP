@@ -377,6 +377,7 @@ class LSNPPeer:
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_post_message(self, parsed_message):
         '''Accept a POST message from a specific user'''
+        token = parsed_message.fields.get("TOKEN")
         current_time_with_ttl = parsed_message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
         ttl = parsed_message.fields.get("TTL")
         current_time = float(current_time_with_ttl) - float(ttl)  # subtracts ttl from post time
@@ -385,6 +386,7 @@ class LSNPPeer:
         content = parsed_message.fields.get("CONTENT")
 
         self.received_posts[current_time] = {
+            "token": token,
             "user_id": user_id,
             "content": content,
             "liking": False
@@ -765,6 +767,38 @@ class LSNPPeer:
         msg = self.message_builder.build_revoke(self.revoked_tokens_self )
         self.send_message_to_peer(peer_id, msg)
 
+    def view_posts(self):
+        now = time.time()
+        expired_keys = []
+
+        # Updates the posts list
+        for ts, post in list(self.received_posts.items()):
+            token = post["token"]
+
+            # parse timestamp from token: user_id|timestamp|scope
+            try:
+                token_parts = token.split("|")
+                token_time = int(token_parts[1])
+            except (IndexError, ValueError):
+                continue 
+            
+            # token exceeds time
+            if now > token_time:
+                expired_keys.append(ts)
+
+        # remove expired posts from both dicts
+        for key in expired_keys:
+            if key in self.received_posts:
+                del self.received_posts[key]
+            if key in self.posts:
+                del self.posts[key]
+
+            if self.verbose:
+                display_manager.log_debug(f"Expired post/s removed.")
+
+        # view all posts
+        display_manager.print_posts(self.posts, self.received_posts)
+
     # ====== MESSAGE SENDING ======
     def send_message_to_peer(self, user_id, message):
         """Send a message to a specific peer using their user_id"""
@@ -790,6 +824,7 @@ class LSNPPeer:
 
         msg = self.message_builder.build_post(content, ttl_seconds)
         parsed_msg = self.message_parser.parse_message(msg)
+        token = parsed_msg.fields.get("TOKEN")
         current_time_with_ttl = parsed_msg.fields.get("TOKEN").split("|")[1] # gets 2nd part of token
         current_time = float(current_time_with_ttl) - float(ttl_seconds) # subtracts ttl from post time
 
@@ -805,6 +840,7 @@ class LSNPPeer:
                 display_manager.log_debug(f"Broadcasted POST: {content}")
 
         self.posts[current_time] = {
+            "token": token,
             "content": content,
             "likers": set() # set of user_ids that liked this post
         }
@@ -1520,6 +1556,12 @@ class LSNPPeer:
 
         elif cmd == "revoked_tokens_self":
             print(self.revoked_tokens_self)
+
+        elif cmd == "revoked_tokens_others":
+            print(self.revoked_tokens_others)
+
+        elif cmd == "view_posts":
+            self.view_posts()
 
         # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":

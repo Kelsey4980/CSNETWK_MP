@@ -186,5 +186,19 @@ class DisplayManager:
             for member in group_data["members"]:
                 print(f"    - {member}")
 
+    def print_posts(self, post_self, post_others):
+        """List all posts"""
+
+        print("Your posts:")
+        for post in post_self.items():
+            print(f"Content: {post['content']}")
+            print(f"Likes: {post['likes']}")
+
+        print("\nPosts from others:")
+        for post in post_others.items():
+            print(f"Content: {post['content']}")
+            print(f"From: {post['user_id']}")
+            print(f"Likes: {post['likes']}")
+
 # Create global display manager instance
 display_manager = DisplayManager()
