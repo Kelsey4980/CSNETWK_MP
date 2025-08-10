@@ -796,23 +796,25 @@ class LSNPPeer:
 
         current_time = float(current_time_with_ttl) - float(ttl_sec) # subtracts ttl from post time
 
+        # Store the post regardless of whether we have followers
+            self.posts[current_time] = {
+                "content": content,
+                "likers": set() # set of user_ids that liked this post
+            }
+
         # TODO: check if correct
+        # Check if we have followers to send to
         peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]
         if peers_to_send_to:
+            # Send to all followers
             for uid in peers_to_send_to:
                 self.send_message_to_peer(uid, msg)
-        else:  # If no other peers, broadcast
-            self.sock.sendto(msg.encode(), (self.BROADCAST_IP, self.PORT))
-            self.stats['messages_sent'] += 1
+            print(f"Post sent to {len(peers_to_send_to)} followers: {content}")
+        else:
+            # No followers - just store locally
+            print(f"Post created (you have no followers): {content}")
             if self.verbose:
-                display_manager.log_debug(f"Broadcasted POST: {content}")
-
-        self.posts[current_time] = {
-            "content": content,
-            "likers": set() # set of user_ids that liked this post
-        }
-
-        print(f"Post sent: {content}")
+                display_manager.log_debug(f"Post stored locally only (no followers): {content}")
 
     def send_dm(self, target_user_id, content):
         """Send a DM to a specific user"""
