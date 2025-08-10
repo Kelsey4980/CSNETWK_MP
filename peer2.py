@@ -988,124 +988,124 @@ class LSNPPeer:
 
         print(f"Revoked token: {token}")
     
-        def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
-            """Send a message and track it for ACK if needed"""
-            target_ip = self._find_peer_ip(target_user_id)
-            if not target_ip:
-                print(f"User {target_user_id} not found.")
-                return False
+    def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
+        """Send a message and track it for ACK if needed"""
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return False
+        
+        try:
+            self.sock.sendto(message.encode(), (target_ip, self.PORT))
+            self.stats['messages_sent'] += 1
             
-            try:
-                self.sock.sendto(message.encode(), (target_ip, self.PORT))
-                self.stats['messages_sent'] += 1
-                
-                if needs_ack:
-                    # Parse message to get MESSAGE_ID
-                    parsed = self.message_parser.parse_message(message)
-                    if parsed and parsed.fields.get("MESSAGE_ID"):
-                        msg_id = parsed.fields.get("MESSAGE_ID")
-                        with self.ack_lock:
-                            self.pending_acks[msg_id] = {
-                                'message': message,
-                                'target_ip': target_ip,
-                                'retries': 0,
-                                'timestamp': time.time()
-                            }
-                        
-                        if self.verbose:
-                            display_manager.log_debug(f"Sent message {msg_id} to {target_user_id}, waiting for ACK")
-                
-                return True
-            except Exception as e:
-                print(f"Error sending message to {target_user_id}: {e}")
-                return False
-
-        def send_file_offer(self, target_user_id, filepath, description=""):
-            """Send a file offer to a specific user"""
-            if not os.path.exists(filepath):
-                print(f"File not found: {filepath}")
-                return
-            
-            filename = os.path.basename(filepath)
-            filesize = os.path.getsize(filepath)
-            filetype = self._guess_file_type(filename)
-            
-            # Check if user exists
-            target_ip = self._find_peer_ip(target_user_id)
-            if not target_ip:
-                print(f"User {target_user_id} not found.")
-                return
-            
-            msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
-            
-            # Extract file ID from the message for tracking
-            parsed_msg = self.message_parser.parse_message(msg)
-            file_id = parsed_msg.fields.get("FILEID")
-            
-            # Store file info for sending chunks
-            self.file_transfers[file_id] = {
-                "filepath": filepath,
-                "target_user": target_user_id,
-                "filename": filename,
-                "filesize": filesize,
-                "sent_chunks": 0,
-                "status": "offered"
-            }
-            
-            # Send with ACK tracking
-            if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
-                print(f"File offer sent to {target_user_id}: {filename}")
-            else:
-                # Clean up on send failure
-                if file_id in self.file_transfers:
-                    del self.file_transfers[file_id]
-
-        def send_file_chunks(self, file_id, chunk_size=1024):
-            """Send file chunks for an accepted file transfer"""
-            if file_id not in self.file_transfers:
-                print(f"File transfer {file_id} not found")
-                return
-            
-            transfer_info = self.file_transfers[file_id]
-            filepath = transfer_info["filepath"]
-            target_user_id = transfer_info["target_user"]
-            
-            try:
-                with open(filepath, 'rb') as f:
-                    file_data = f.read()
-                
-                # Split into chunks
-                chunks = []
-                for i in range(0, len(file_data), chunk_size):
-                    chunk_data = file_data[i:i + chunk_size]
-                    encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
-                    chunks.append(encoded_chunk)
-                
-                total_chunks = len(chunks)
-                successful_chunks = 0
-                
-                # Send each chunk with ACK tracking
-                for i, chunk_data in enumerate(chunks):
-                    msg = self.message_builder.build_file_chunk(
-                        target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
-                    )
+            if needs_ack:
+                # Parse message to get MESSAGE_ID
+                parsed = self.message_parser.parse_message(message)
+                if parsed and parsed.fields.get("MESSAGE_ID"):
+                    msg_id = parsed.fields.get("MESSAGE_ID")
+                    with self.ack_lock:
+                        self.pending_acks[msg_id] = {
+                            'message': message,
+                            'target_ip': target_ip,
+                            'retries': 0,
+                            'timestamp': time.time()
+                        }
                     
-                    if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
-                        successful_chunks += 1
-                        if self.verbose:
-                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
-                        time.sleep(0.1)  # Small delay between chunks
-                    else:
-                        print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
+                    if self.verbose:
+                        display_manager.log_debug(f"Sent message {msg_id} to {target_user_id}, waiting for ACK")
+            
+            return True
+        except Exception as e:
+            print(f"Error sending message to {target_user_id}: {e}")
+            return False
+
+    def send_file_offer(self, target_user_id, filepath, description=""):
+        """Send a file offer to a specific user"""
+        if not os.path.exists(filepath):
+            print(f"File not found: {filepath}")
+            return
+        
+        filename = os.path.basename(filepath)
+        filesize = os.path.getsize(filepath)
+        filetype = self._guess_file_type(filename)
+        
+        # Check if user exists
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return
+        
+        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
+        
+        # Extract file ID from the message for tracking
+        parsed_msg = self.message_parser.parse_message(msg)
+        file_id = parsed_msg.fields.get("FILEID")
+        
+        # Store file info for sending chunks
+        self.file_transfers[file_id] = {
+            "filepath": filepath,
+            "target_user": target_user_id,
+            "filename": filename,
+            "filesize": filesize,
+            "sent_chunks": 0,
+            "status": "offered"
+        }
+        
+        # Send with ACK tracking
+        if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+            print(f"File offer sent to {target_user_id}: {filename}")
+        else:
+            # Clean up on send failure
+            if file_id in self.file_transfers:
+                del self.file_transfers[file_id]
+
+    def send_file_chunks(self, file_id, chunk_size=1024):
+        """Send file chunks for an accepted file transfer"""
+        if file_id not in self.file_transfers:
+            print(f"File transfer {file_id} not found")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                chunks.append(encoded_chunk)
+            
+            total_chunks = len(chunks)
+            successful_chunks = 0
+            
+            # Send each chunk with ACK tracking
+            for i, chunk_data in enumerate(chunks):
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
+                )
                 
-                if successful_chunks == total_chunks:
-                    print(f"Sent {total_chunks} chunks for file {file_id}")
-                    transfer_info["status"] = "sent"
+                if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+                    successful_chunks += 1
+                    if self.verbose:
+                        display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
+                    time.sleep(0.1)  # Small delay between chunks
                 else:
-                    print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
-                    
-            except Exception as e:
-                print(f"Error sending file chunks: {e}")
+                    print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
+            
+            if successful_chunks == total_chunks:
+                print(f"Sent {total_chunks} chunks for file {file_id}")
+                transfer_info["status"] = "sent"
+            else:
+                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
+                
+        except Exception as e:
+            print(f"Error sending file chunks: {e}")
 
     # ====== FILE RECEIVING & SENDING ======
     def _complete_file_transfer(self, file_id):
