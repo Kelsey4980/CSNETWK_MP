@@ -121,9 +121,7 @@ class LSNPPeer:
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
                 no_ack_types = {
-                    MessageType.ACK,
-                    MessageType.PING,
-                    MessageType.PROFILE 
+                    MessageType.ACK
                 }
 
                 if msg_id and msg_type not in no_ack_types:
