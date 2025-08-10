@@ -55,6 +55,7 @@ class LSNPPeer:
         self.posts = {} # posts you sent, used for storing likes
         self.received_posts = {} # posts you received, used for sending likes/unlikes
         self.groups = {} # group stored
+        self.all_messages = [] # stores ALL messages
         self.revoked_tokens_others = [] # revoked tokens from others
         self.revoked_tokens_self = [] # revoked tokens from self
         self.running = False
@@ -154,6 +155,8 @@ class LSNPPeer:
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
+
+                    self.all_messages.append(parsed_message)
                     if self.verbose:
                         display_manager.log_debug(f"Sent ACK for message ID: {msg_id}")
 
