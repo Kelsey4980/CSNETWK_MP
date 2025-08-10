@@ -80,7 +80,7 @@ class MessageBuilder:
             ttl_seconds = DEFAULT_TTL
         
         message_id = self.generate_message_id()
-        token = self.get_cached_token("chat", ttl_seconds) # ttl_seconds is expiration time
+        token = self.get_cached_token("broadcast", ttl_seconds) # ttl_seconds is expiration time
         
         message_parts = [
             f"TYPE: POST",
@@ -163,7 +163,7 @@ class MessageBuilder:
         Build a LIKE message
         Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
         """
-        token = self.get_cached_token("chat")
+        token = self.get_cached_token("broadcast")
         timestamp = int(time.time())
         
         message_parts = [
@@ -184,7 +184,7 @@ class MessageBuilder:
         Build an UNLIKE message
         Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
         """
-        token = self.get_cached_token("chat")
+        token = self.get_cached_token("broadcast")
         timestamp = int(time.time())
 
         message_parts = [
