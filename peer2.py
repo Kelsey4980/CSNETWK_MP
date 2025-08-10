@@ -366,11 +366,15 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
+        print("received post", user_id, content)
+
         self.received_posts[current_time] = {
             "user_id": user_id,
             "content": content,
             "liking": False
         }
+
+        print("list of posts", self.received_posts)
 
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_likes(self, parsed_message):
@@ -380,6 +384,7 @@ class LSNPPeer:
 
         if user_id in self.followers:
             self.posts[post_timestamp]["likers"].add(user_id)
+            print(self.posts)
         else:
             print(f"User {user_id} is not following you.")
 
@@ -788,8 +793,6 @@ class LSNPPeer:
         ttl_sec = parsed_msg.fields.get("TTL")
 
         current_time = float(current_time_with_ttl) - float(ttl_sec) # subtracts ttl from post time
-
-        print("curtime", current_time)
 
         # TODO: check if correct
         peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]
@@ -1523,6 +1526,9 @@ class LSNPPeer:
                 dt = datetime.strptime(f"{today} {post_timestamp}", "%Y-%m-%d %H:%M:%S")
 
                 converted_timestamp = dt.timestamp()
+
+                print(converted_timestamp)
+
                 self.send_like(converted_timestamp)
             else:
                 print("Usage: like <post_timestamp>")

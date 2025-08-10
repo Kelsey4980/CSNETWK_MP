@@ -262,7 +262,11 @@ class MessageParser:
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
                 content = message.fields.get("CONTENT", "")
-                return f"{timestamp_str} POST from {display_name}: {content}"
+                timestamp = message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
+                ttl_sec = message.fields.get("TTL")
+
+                post_time = float(timestamp) - float(ttl_sec)  # subtracts ttl from post time
+                return f"{timestamp_str}|{post_time} POST from {display_name}: {content}"
             
             elif msg_type == MessageType.DM:
                 # dm: Show only the display_name (user_id if display name is not recorded) and content
