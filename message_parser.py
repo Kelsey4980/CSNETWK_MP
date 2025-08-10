@@ -305,8 +305,9 @@ class MessageParser:
                 # final: "bob@192.168.1.12 sent “Just uploaded the photos!”
                 sender = message.fields.get("FROM")
                 content = message.fields.get("CONTENT")
+                group_id = message.fields.get("GROUP_ID")
 
-                return f"{timestamp_str} {sender} send \"{content}\""
+                return f"{timestamp_str}|{group_id} {sender} sent \"{content}\""
             
             elif msg_type == MessageType.GROUP_UPDATE:
                 # final: The group “Trip Buddies” member list was updated.

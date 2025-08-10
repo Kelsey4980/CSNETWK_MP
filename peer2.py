@@ -982,7 +982,11 @@ class LSNPPeer:
     # TODO: Check if correct
     def send_group_message(self, group_key, content):
         current_time = time.time()
-        group_creator, group_id = group_key.split("|", 1)
+        group_id, group_creator = group_key.split("|", 1)
+
+        print(group_key)
+        print(content)
+        print(group_creator, group_id)
 
         matching_key = None
         for key, group in self.groups.items():
@@ -992,8 +996,13 @@ class LSNPPeer:
 
         if matching_key:
             group = self.groups[matching_key]
+
             target_users = group["members"]
+            target_users = [user for user in target_users if user != self.user_id]
+
             msg = self.message_builder.build_group_message(group_id, content, current_time)
+
+            print(msg)
 
             for user_id in target_users:
                 self.send_message_to_peer(user_id, msg)
@@ -1480,7 +1489,7 @@ class LSNPPeer:
         elif cmd == "group_message":
             if len(parts) > 2:
                 group_key = parts[1]  
-                content = parts[2:]
+                content = " ".join(parts[2:])
 
                 self.send_group_message(group_key, content)
             else:
