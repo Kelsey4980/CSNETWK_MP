@@ -135,6 +135,7 @@ class DisplayManager:
         print("  stats        - Show message statistics")
         print("  following    - List peers followed")
         print("  followers    - List peers following you")
+        print("  ack_status   - Show pending ACKs") 
         print()
         print("File Transfer Commands:")
         print("  file_offer <user_id> <filepath> [description] - Offer file to user")

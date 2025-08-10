@@ -6,6 +6,8 @@ import time
 import secrets
 import base64
 import os
+import queue
+from typing import Dict, Any
 
 from message_builder import MessageBuilder
 from message_parser import MessageParser, MessageType
@@ -55,9 +57,20 @@ class LSNPPeer:
         self.revoked_tokens_self = [] # revoked tokens from self
         self.running = False
         self.verbose = verbose
+
+        # -- File Sending
         self.file_transfers = {}  # file_id -> file_info
         self.file_chunks = {}     # file_id -> {chunk_index: data}
         self.pending_file_offers = {}  # file_id -> offer_info
+
+        # -- ACK & Retries
+        self.pending_acks = {}  # message_id -> {'message': msg, 'target_ip': ip, 'retries': count, 'timestamp': time}
+        self.ack_timeout = 2.0  # 2 seconds timeout
+        self.max_retries = 3
+        self.ack_lock = threading.Lock()
+        
+        # Start the ACK timeout checker thread
+        threading.Thread(target=self._ack_timeout_checker, daemon=True).start()
         
         # Message handling ✅
         self.message_builder = MessageBuilder(self.user_id, self.display_name)
@@ -92,6 +105,11 @@ class LSNPPeer:
     def stop(self):
         """Stop the peer"""
         self.running = False
+
+        # Clear pending ACKs
+        with self.ack_lock:
+            self.pending_acks.clear()
+
         self.sock.close()
         print("Peer left.")
 
@@ -117,18 +135,17 @@ class LSNPPeer:
                 if sender_user_id == self.user_id:
                     continue
 
-                # Process and ACK 
+                # Process message (this handles ACKs internally now)
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
                     continue
-
+                
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
-
-                no_ack_types = {
-                    MessageType.ACK
-                }
-
+                
+                # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
+                no_ack_types = {MessageType.ACK}
+                
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
@@ -150,9 +167,8 @@ class LSNPPeer:
             self.stats['invalid_messages'] += 1
             # Debug log for parser failure is already handled by message_parser if verbose
             return None
-        
-        # Handle different message types for peer discovery
-        # Insert handlers for other message types here (e.g., for storage logic)
+
+        # Handle different message types
         if parsed_message.message_type == MessageType.PROFILE:
             self._handle_profile_message(parsed_message)
         elif parsed_message.message_type == MessageType.PING:
@@ -179,7 +195,9 @@ class LSNPPeer:
             self._handle_file_chunk_message(parsed_message)
         elif parsed_message.message_type == MessageType.FILE_RECEIVED:
             self._handle_file_received_message(parsed_message)
-
+        elif parsed_message.message_type == MessageType.ACK:
+            self._handle_ack_message(parsed_message)
+            return parsed_message
 
         # Update last seen for any message with user identification
         user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
@@ -532,73 +550,24 @@ class LSNPPeer:
         
         if self.verbose:
             display_manager.log_debug(f"File transfer confirmation from {sender_id}: {file_id} - {status}")
-
-    def _complete_file_transfer(self, file_id):
-        """Complete file transfer by reassembling chunks"""
-        transfer_info = self.file_transfers[file_id]
-        chunks = self.file_chunks[file_id]
+    
+    def _handle_ack_message(self, parsed_message):
+        """Handle received ACK messages"""
+        msg_id = parsed_message.fields.get("MESSAGE_ID")
+        status = parsed_message.fields.get("STATUS")
         
-        # Reassemble file data
-        file_data = b""
-        for i in range(transfer_info["total_chunks"]):
-            if i in chunks:
-                chunk_data = base64.b64decode(chunks[i])
-                file_data += chunk_data
-            else:
+        if not msg_id:
+            if self.verbose:
+                display_manager.log_warning("Received ACK without MESSAGE_ID")
+            return
+        
+        with self.ack_lock:
+            if msg_id in self.pending_acks:
                 if self.verbose:
-                    display_manager.log_warning(f"Missing chunk {i} for file {file_id}")
-                return
-        
-        # Save file
-        filename = transfer_info["filename"]
-        safe_filename = self._make_safe_filename(filename)
-        
-        try:
-            with open(safe_filename, 'wb') as f:
-                f.write(file_data)
-            
-            print(f"File transfer of {filename} is complete")
-            
-            # Send FILE_RECEIVED confirmation
-            sender_id = transfer_info["sender"]
-            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
-            self.send_message_to_peer(sender_id, msg)
-            
-            if self.verbose:
-                display_manager.log_debug(f"File saved as {safe_filename} ({len(file_data)} bytes)")
-            
-        except Exception as e:
-            print(f"Error saving file {filename}: {e}")
-            if self.verbose:
-                display_manager.log_warning(f"Failed to save file {filename}: {e}")
-        
-        # Clean up
-        if file_id in self.file_transfers:
-            del self.file_transfers[file_id]
-        if file_id in self.file_chunks:
-            del self.file_chunks[file_id]
-        if file_id in self.pending_file_offers:
-            del self.pending_file_offers[file_id]
-
-    def _make_safe_filename(self, filename):
-        """Make filename safe for saving"""
-        # Remove dangerous characters
-        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        safe_filename = "".join(c for c in filename if c in safe_chars)
-        
-        # Prevent empty filename
-        if not safe_filename:
-            safe_filename = "received_file"
-        
-        # Add counter if file exists
-        counter = 1
-        original_name = safe_filename
-        while os.path.exists(safe_filename):
-            name, ext = os.path.splitext(original_name)
-            safe_filename = f"{name}_{counter}{ext}"
-            counter += 1
-        
-        return safe_filename
+                    display_manager.log_debug(f"Received ACK for message {msg_id} with status: {status}")
+                del self.pending_acks[msg_id]
+            elif self.verbose:
+                display_manager.log_debug(f"Received ACK for unknown message {msg_id}")
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -1004,81 +973,193 @@ class LSNPPeer:
 
         print(f"Revoked token: {token}")
     
-    def send_file_offer(self, target_user_id, filepath, description=""):
-        """Send a file offer to a specific user"""
-        if not os.path.exists(filepath):
-            print(f"File not found: {filepath}")
-            return
-        
-        filename = os.path.basename(filepath)
-        filesize = os.path.getsize(filepath)
-        filetype = self._guess_file_type(filename)
-        
-        # Check if user exists
-        target_ip = self._find_peer_ip(target_user_id)
-        if not target_ip:
-            print(f"User {target_user_id} not found.")
-            return
-        
-        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
-        
-        # Extract file ID from the message for tracking
-        parsed_msg = self.message_parser.parse_message(msg)
-        file_id = parsed_msg.fields.get("FILEID")
-        
-        # Store file info for sending chunks
-        self.file_transfers[file_id] = {
-            "filepath": filepath,
-            "target_user": target_user_id,
-            "filename": filename,
-            "filesize": filesize,
-            "sent_chunks": 0,
-            "status": "offered"
-        }
-        
-        self.send_message_to_peer(target_user_id, msg)
-        print(f"File offer sent to {target_user_id}: {filename}")
+        def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
+            """Send a message and track it for ACK if needed"""
+            target_ip = self._find_peer_ip(target_user_id)
+            if not target_ip:
+                print(f"User {target_user_id} not found.")
+                return False
+            
+            try:
+                self.sock.sendto(message.encode(), (target_ip, self.PORT))
+                self.stats['messages_sent'] += 1
+                
+                if needs_ack:
+                    # Parse message to get MESSAGE_ID
+                    parsed = self.message_parser.parse_message(message)
+                    if parsed and parsed.fields.get("MESSAGE_ID"):
+                        msg_id = parsed.fields.get("MESSAGE_ID")
+                        with self.ack_lock:
+                            self.pending_acks[msg_id] = {
+                                'message': message,
+                                'target_ip': target_ip,
+                                'retries': 0,
+                                'timestamp': time.time()
+                            }
+                        
+                        if self.verbose:
+                            display_manager.log_debug(f"Sent message {msg_id} to {target_user_id}, waiting for ACK")
+                
+                return True
+            except Exception as e:
+                print(f"Error sending message to {target_user_id}: {e}")
+                return False
 
-    def send_file_chunks(self, file_id, chunk_size=1024):
-        """Send file chunks for an accepted file transfer"""
-        if file_id not in self.file_transfers:
-            print(f"File transfer {file_id} not found")
-            return
-        
+        def send_file_offer(self, target_user_id, filepath, description=""):
+            """Send a file offer to a specific user"""
+            if not os.path.exists(filepath):
+                print(f"File not found: {filepath}")
+                return
+            
+            filename = os.path.basename(filepath)
+            filesize = os.path.getsize(filepath)
+            filetype = self._guess_file_type(filename)
+            
+            # Check if user exists
+            target_ip = self._find_peer_ip(target_user_id)
+            if not target_ip:
+                print(f"User {target_user_id} not found.")
+                return
+            
+            msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
+            
+            # Extract file ID from the message for tracking
+            parsed_msg = self.message_parser.parse_message(msg)
+            file_id = parsed_msg.fields.get("FILEID")
+            
+            # Store file info for sending chunks
+            self.file_transfers[file_id] = {
+                "filepath": filepath,
+                "target_user": target_user_id,
+                "filename": filename,
+                "filesize": filesize,
+                "sent_chunks": 0,
+                "status": "offered"
+            }
+            
+            # Send with ACK tracking
+            if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+                print(f"File offer sent to {target_user_id}: {filename}")
+            else:
+                # Clean up on send failure
+                if file_id in self.file_transfers:
+                    del self.file_transfers[file_id]
+
+        def send_file_chunks(self, file_id, chunk_size=1024):
+            """Send file chunks for an accepted file transfer"""
+            if file_id not in self.file_transfers:
+                print(f"File transfer {file_id} not found")
+                return
+            
+            transfer_info = self.file_transfers[file_id]
+            filepath = transfer_info["filepath"]
+            target_user_id = transfer_info["target_user"]
+            
+            try:
+                with open(filepath, 'rb') as f:
+                    file_data = f.read()
+                
+                # Split into chunks
+                chunks = []
+                for i in range(0, len(file_data), chunk_size):
+                    chunk_data = file_data[i:i + chunk_size]
+                    encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                    chunks.append(encoded_chunk)
+                
+                total_chunks = len(chunks)
+                successful_chunks = 0
+                
+                # Send each chunk with ACK tracking
+                for i, chunk_data in enumerate(chunks):
+                    msg = self.message_builder.build_file_chunk(
+                        target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
+                    )
+                    
+                    if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+                        successful_chunks += 1
+                        if self.verbose:
+                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
+                        time.sleep(0.1)  # Small delay between chunks
+                    else:
+                        print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
+                
+                if successful_chunks == total_chunks:
+                    print(f"Sent {total_chunks} chunks for file {file_id}")
+                    transfer_info["status"] = "sent"
+                else:
+                    print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
+                    
+            except Exception as e:
+                print(f"Error sending file chunks: {e}")
+
+    # ====== FILE RECEIVING & SENDING ======
+    def _complete_file_transfer(self, file_id):
+        """Complete file transfer by reassembling chunks"""
         transfer_info = self.file_transfers[file_id]
-        filepath = transfer_info["filepath"]
-        target_user_id = transfer_info["target_user"]
+        chunks = self.file_chunks[file_id]
+        
+        # Reassemble file data
+        file_data = b""
+        for i in range(transfer_info["total_chunks"]):
+            if i in chunks:
+                chunk_data = base64.b64decode(chunks[i])
+                file_data += chunk_data
+            else:
+                if self.verbose:
+                    display_manager.log_warning(f"Missing chunk {i} for file {file_id}")
+                return
+        
+        # Save file
+        filename = transfer_info["filename"]
+        safe_filename = self._make_safe_filename(filename)
         
         try:
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
+            with open(safe_filename, 'wb') as f:
+                f.write(file_data)
             
-            # Split into chunks
-            chunks = []
-            for i in range(0, len(file_data), chunk_size):
-                chunk_data = file_data[i:i + chunk_size]
-                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
-                chunks.append(encoded_chunk)
+            print(f"File transfer of {filename} is complete")
             
-            total_chunks = len(chunks)
+            # Send FILE_RECEIVED confirmation
+            sender_id = transfer_info["sender"]
+            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
+            self.send_message_to_peer(sender_id, msg)
             
-            # Send each chunk
-            for i, chunk_data in enumerate(chunks):
-                msg = self.message_builder.build_file_chunk(
-                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
-                )
-                self.send_message_to_peer(target_user_id, msg)
-                time.sleep(0.1)  # Small delay between chunks
-                
-                if self.verbose:
-                    display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
-            
-            print(f"Sent {total_chunks} chunks for file {file_id}")
+            if self.verbose:
+                display_manager.log_debug(f"File saved as {safe_filename} ({len(file_data)} bytes)")
             
         except Exception as e:
-            print(f"Error sending file chunks: {e}")
+            print(f"Error saving file {filename}: {e}")
+            if self.verbose:
+                display_manager.log_warning(f"Failed to save file {filename}: {e}")
+        
+        # Clean up
+        if file_id in self.file_transfers:
+            del self.file_transfers[file_id]
+        if file_id in self.file_chunks:
+            del self.file_chunks[file_id]
+        if file_id in self.pending_file_offers:
+            del self.pending_file_offers[file_id]
 
-    # ====== FILE SENDING (HELPERS) ======
+    def _make_safe_filename(self, filename):
+        """Make filename safe for saving"""
+        # Remove dangerous characters
+        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        safe_filename = "".join(c for c in filename if c in safe_chars)
+        
+        # Prevent empty filename
+        if not safe_filename:
+            safe_filename = "received_file"
+        
+        # Add counter if file exists
+        counter = 1
+        original_name = safe_filename
+        while os.path.exists(safe_filename):
+            name, ext = os.path.splitext(original_name)
+            safe_filename = f"{name}_{counter}{ext}"
+            counter += 1
+        
+        return safe_filename
+
     def accept_file(self, file_id):
         """Accept a pending file offer"""
         if file_id not in self.pending_file_offers:
@@ -1150,6 +1231,80 @@ class LSNPPeer:
             print("No active file transfers")
         
         print("---------------------\n")
+    
+    # ====== ACK TIMEOUT & RETRY ======
+    def _ack_timeout_checker(self):
+        """Check for ACK timeouts and handle retries"""
+        while self.running:
+            try:
+                current_time = time.time()
+                expired_messages = []
+                
+                with self.ack_lock:
+                    for msg_id, ack_info in self.pending_acks.items():
+                        if current_time - ack_info['timestamp'] > self.ack_timeout:
+                            expired_messages.append(msg_id)
+                
+                for msg_id in expired_messages:
+                    self._handle_ack_timeout(msg_id)
+                
+                time.sleep(0.5)  # Check every 500ms
+            except Exception as e:
+                if self.running and self.verbose:
+                    display_manager.log_warning(f"Error in ACK timeout checker: {e}")
+    
+    def _handle_ack_timeout(self, message_id):
+        """Handle ACK timeout for a message"""
+        with self.ack_lock:
+            if message_id not in self.pending_acks:
+                return
+            
+            ack_info = self.pending_acks[message_id]
+            ack_info['retries'] += 1
+            
+            if ack_info['retries'] <= self.max_retries:
+                # Retry sending the message
+                try:
+                    self.sock.sendto(ack_info['message'].encode(), (ack_info['target_ip'], self.PORT))
+                    ack_info['timestamp'] = time.time()  # Update timestamp for new retry
+                    
+                    if self.verbose:
+                        display_manager.log_debug(f"Retrying message {message_id} (attempt {ack_info['retries']}/{self.max_retries})")
+                except Exception as e:
+                    if self.verbose:
+                        display_manager.log_warning(f"Failed to retry message {message_id}: {e}")
+            else:
+                # Max retries exceeded
+                if self.verbose:
+                    display_manager.log_warning(f"Max retries exceeded for message {message_id}")
+                
+                # Handle specific failure cases
+                self._handle_message_failure(message_id, ack_info)
+                
+                # Remove from pending ACKs
+                del self.pending_acks[message_id]
+
+    def _handle_message_failure(self, message_id, ack_info):
+        """Handle message failure after max retries"""
+        message = ack_info['message']
+        
+        # Parse message to determine type and handle accordingly
+        try:
+            parsed = self.message_parser.parse_message(message)
+            if parsed and parsed.message_type == MessageType.FILE_OFFER:
+                file_id = parsed.fields.get("FILEID")
+                if file_id and file_id in self.file_transfers:
+                    print(f"Failed to send file offer for {self.file_transfers[file_id]['filename']} - no response from recipient")
+                    # Clean up failed file transfer
+                    del self.file_transfers[file_id]
+            elif parsed and parsed.message_type == MessageType.FILE_CHUNK:
+                file_id = parsed.fields.get("FILEID")
+                chunk_index = parsed.fields.get("CHUNK_INDEX")
+                if file_id and chunk_index is not None:
+                    print(f"Failed to send file chunk {chunk_index} for file {file_id} - transfer may be incomplete")
+        except Exception as e:
+            if self.verbose:
+                display_manager.log_warning(f"Error handling message failure: {e}")
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
@@ -1314,6 +1469,17 @@ class LSNPPeer:
 
         elif cmd == "files":
             self.list_file_transfers()
+        
+        elif cmd == "ack_status":
+            with self.ack_lock:
+                if self.pending_acks:
+                    print(f"\nPending ACKs ({len(self.pending_acks)}):")
+                    for msg_id, ack_info in self.pending_acks.items():
+                        elapsed = time.time() - ack_info['timestamp']
+                        print(f"  {msg_id}: {ack_info['retries']}/{self.max_retries} retries, {elapsed:.1f}s elapsed")
+                else:
+                    print("No pending ACKs")
+
         # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":
             self.verbose = not self.verbose
