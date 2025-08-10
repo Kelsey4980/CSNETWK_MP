@@ -797,10 +797,10 @@ class LSNPPeer:
         current_time = float(current_time_with_ttl) - float(ttl_sec) # subtracts ttl from post time
 
         # Store the post regardless of whether we have followers
-            self.posts[current_time] = {
-                "content": content,
-                "likers": set() # set of user_ids that liked this post
-            }
+        self.posts[current_time] = {
+            "content": content,
+            "likers": set() # set of user_ids that liked this post
+        }
 
         # TODO: check if correct
         # Check if we have followers to send to
