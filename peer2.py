@@ -150,7 +150,7 @@ class LSNPPeer:
                     continue
                 
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
-                no_ack_types = {MessageType.ACK}
+                no_ack_types = {MessageType.ACK, MessageType.FILE_OFFER}
                 
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
@@ -605,7 +605,7 @@ class LSNPPeer:
                 
                 # Parse the original message to check if it was a file offer
                 try:
-                    parsed_original = self.message_parser.parse_message(message)
+                    parsed_original = self.message_parser.parse_message(message, ack_info['target_ip'])
                     if parsed_original and parsed_original.message_type == MessageType.FILE_OFFER:
                         file_id = parsed_original.fields.get("FILEID")
                         if file_id and file_id in self.file_transfers:
@@ -1262,9 +1262,14 @@ class LSNPPeer:
             "start_time": time.time()
         }
         
-        print(f"File {file_id} accepted. Ready to receive chunks.")
+        # Send ACK using FILEID (since FILE_OFFER messages don't have MESSAGE_ID)
+        sender_id = offer_info["sender"]
+        ack = self.message_builder.build_ack(file_id, "ACCEPTED")
+        self.send_message_to_peer(sender_id, ack)
+        
+        print(f"File {file_id} accepted. ACK sent to {sender_id}.")
         if self.verbose:
-            display_manager.log_debug(f"File {file_id} accepted, ready to receive chunks")
+            display_manager.log_debug(f"File {file_id} accepted, ACK sent to trigger transfer")
 
     def reject_file(self, file_id):
         """Reject a pending file offer"""
