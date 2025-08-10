@@ -188,7 +188,7 @@ class MessageBuilder:
         timestamp = int(time.time())
 
         message_parts = [
-            f"TYPE: LIKE",
+            f"TYPE: UNLIKE",
             f"FROM: {self.user_id}",
             f"TO: {to_user_id}",
             f"POST_TIMESTAMP: {post_timestamp}",
