@@ -73,12 +73,14 @@ class MessageParser:
         
         message = ParsedMessage(raw_message, sender_ip)
         
-        # Use the current self.verbose_mode for parsing logs
+        # [COMMENTED - this portion is the message itself already] Use the current self.verbose_mode for parsing logs
+        """
         if self.verbose_mode:
             print(f">> [DEBUG - Parser] Attempting to parse raw message from {sender_ip}:")
             print("----------------------------------------")
             print(raw_message.strip())
             print("----------------------------------------")
+        """
         
         try:
             # Parse message fields
