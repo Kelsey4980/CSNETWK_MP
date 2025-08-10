@@ -204,6 +204,21 @@ class MessageParser:
             if not all(k in message.fields for k in ["TOKEN"]):
                 message.validation_errors.append("REVOKE message missing required fields")
                 message.is_valid = False
+        
+        elif message.message_type == MessageType.FILE_OFFER:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append("FILE_OFFER message missing required fields")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.FILE_CHUNK:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILEID", "CHUNK_INDEX", "TOTAL_CHUNKS", "CHUNK_SIZE", "TOKEN", "DATA"]):
+                message.validation_errors.append("FILE_CHUNK message missing required fields")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.FILE_RECEIVED:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILEID", "STATUS", "TIMESTAMP"]):
+                message.validation_errors.append("FILE_RECEIVED message missing required fields")
+                message.is_valid = False
             
         else:
             # Unknown or unsupported type
@@ -299,6 +314,21 @@ class MessageParser:
             
             elif msg_type == MessageType.REVOKE:
                 # final: do not display anything (handled by verbose log in LSNPPeer)
+                return ""
+
+            elif msg_type == MessageType.FILE_OFFER:
+                # "User alice is sending you a file do you accept?"
+                sender_user_id = message.fields.get("FROM")
+                display_name = message.get_display_name(peer_profiles)
+                filename = message.fields.get("FILENAME", "")
+                return f"{timestamp_str} User {display_name} is sending you a file ({filename}). Do you accept?"
+
+            elif msg_type == MessageType.FILE_CHUNK:
+                # Do not print anything until all chunks are completed
+                return ""
+
+            elif msg_type == MessageType.FILE_RECEIVED:
+                # Do not print anything
                 return ""
             
             else:

@@ -4,6 +4,8 @@ import sys
 import threading
 import time
 import secrets
+import base64
+import os
 
 from message_builder import MessageBuilder
 from message_parser import MessageParser, MessageType
@@ -53,6 +55,9 @@ class LSNPPeer:
         self.revoked_tokens_self = [] # revoked tokens from self
         self.running = False
         self.verbose = verbose
+        self.file_transfers = {}  # file_id -> file_info
+        self.file_chunks = {}     # file_id -> {chunk_index: data}
+        self.pending_file_offers = {}  # file_id -> offer_info
         
         # Message handling ✅
         self.message_builder = MessageBuilder(self.user_id, self.display_name)
@@ -168,6 +173,12 @@ class LSNPPeer:
             self._handle_group_create(parsed_message)
         elif parsed_message.message_type == MessageType.GROUP_UPDATE:
             self._handle_group_update(parsed_message)
+        elif parsed_message.message_type == MessageType.FILE_OFFER:
+            self._handle_file_offer_message(parsed_message)
+        elif parsed_message.message_type == MessageType.FILE_CHUNK:
+            self._handle_file_chunk_message(parsed_message)
+        elif parsed_message.message_type == MessageType.FILE_RECEIVED:
+            self._handle_file_received_message(parsed_message)
 
 
         # Update last seen for any message with user identification
@@ -436,6 +447,158 @@ class LSNPPeer:
 
         if self.verbose:
             display_manager.log_debug(f"Token revoked by peer: {token}")
+    
+    def _handle_file_offer_message(self, parsed_message):
+        """Handle FILE_OFFER messages"""
+        sender_id = parsed_message.fields.get("FROM")
+        file_id = parsed_message.fields.get("FILEID")
+        filename = parsed_message.fields.get("FILENAME")
+        filesize = parsed_message.fields.get("FILESIZE")
+        filetype = parsed_message.fields.get("FILETYPE")
+        description = parsed_message.fields.get("DESCRIPTION", "")
+        
+        # Validate sender
+        if not self._validate_user_id_and_ip(sender_id, parsed_message.sender_ip):
+            return
+        
+        # Store pending file offer
+        self.pending_file_offers[file_id] = {
+            "sender": sender_id,
+            "filename": filename,
+            "filesize": int(filesize),
+            "filetype": filetype,
+            "description": description,
+            "timestamp": time.time()
+        }
+        
+        # Update peer info
+        sender_username = sender_id.split('@')[0]
+        self._update_peer_info(sender_id, sender_username, parsed_message.sender_ip)
+        self._log_ip(parsed_message.sender_ip)
+        
+        if self.verbose:
+            display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
+
+    def _handle_file_chunk_message(self, parsed_message):
+        """Handle FILE_CHUNK messages"""
+        sender_id = parsed_message.fields.get("FROM")
+        file_id = parsed_message.fields.get("FILEID")
+        chunk_index = int(parsed_message.fields.get("CHUNK_INDEX"))
+        total_chunks = int(parsed_message.fields.get("TOTAL_CHUNKS"))
+        chunk_size = int(parsed_message.fields.get("CHUNK_SIZE"))
+        data = parsed_message.fields.get("DATA")
+        
+        # Check if we have accepted this file offer
+        if file_id not in self.pending_file_offers and file_id not in self.file_transfers:
+            if self.verbose:
+                display_manager.log_warning(f"Received chunk for unknown/rejected file: {file_id}")
+            return
+        
+        # Initialize file transfer if first chunk
+        if file_id not in self.file_transfers:
+            offer_info = self.pending_file_offers.get(file_id)
+            if offer_info:
+                self.file_transfers[file_id] = {
+                    "sender": sender_id,
+                    "filename": offer_info["filename"],
+                    "filesize": offer_info["filesize"],
+                    "filetype": offer_info["filetype"],
+                    "total_chunks": total_chunks,
+                    "received_chunks": 0,
+                    "start_time": time.time()
+                }
+                self.file_chunks[file_id] = {}
+        
+        # Store chunk
+        if file_id not in self.file_chunks:
+            self.file_chunks[file_id] = {}
+        
+        self.file_chunks[file_id][chunk_index] = data
+        self.file_transfers[file_id]["received_chunks"] = len(self.file_chunks[file_id])
+        
+        if self.verbose:
+            received = self.file_transfers[file_id]["received_chunks"]
+            display_manager.log_debug(f"Received chunk {chunk_index + 1}/{total_chunks} for file {file_id} ({received}/{total_chunks} total)")
+        
+        # Check if all chunks received
+        if len(self.file_chunks[file_id]) == total_chunks:
+            self._complete_file_transfer(file_id)
+
+    def _handle_file_received_message(self, parsed_message):
+        """Handle FILE_RECEIVED messages"""
+        sender_id = parsed_message.fields.get("FROM")
+        file_id = parsed_message.fields.get("FILEID")
+        status = parsed_message.fields.get("STATUS")
+        
+        if self.verbose:
+            display_manager.log_debug(f"File transfer confirmation from {sender_id}: {file_id} - {status}")
+
+    def _complete_file_transfer(self, file_id):
+        """Complete file transfer by reassembling chunks"""
+        transfer_info = self.file_transfers[file_id]
+        chunks = self.file_chunks[file_id]
+        
+        # Reassemble file data
+        file_data = b""
+        for i in range(transfer_info["total_chunks"]):
+            if i in chunks:
+                chunk_data = base64.b64decode(chunks[i])
+                file_data += chunk_data
+            else:
+                if self.verbose:
+                    display_manager.log_warning(f"Missing chunk {i} for file {file_id}")
+                return
+        
+        # Save file
+        filename = transfer_info["filename"]
+        safe_filename = self._make_safe_filename(filename)
+        
+        try:
+            with open(safe_filename, 'wb') as f:
+                f.write(file_data)
+            
+            print(f"File transfer of {filename} is complete")
+            
+            # Send FILE_RECEIVED confirmation
+            sender_id = transfer_info["sender"]
+            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
+            self.send_message_to_peer(sender_id, msg)
+            
+            if self.verbose:
+                display_manager.log_debug(f"File saved as {safe_filename} ({len(file_data)} bytes)")
+            
+        except Exception as e:
+            print(f"Error saving file {filename}: {e}")
+            if self.verbose:
+                display_manager.log_warning(f"Failed to save file {filename}: {e}")
+        
+        # Clean up
+        if file_id in self.file_transfers:
+            del self.file_transfers[file_id]
+        if file_id in self.file_chunks:
+            del self.file_chunks[file_id]
+        if file_id in self.pending_file_offers:
+            del self.pending_file_offers[file_id]
+
+    def _make_safe_filename(self, filename):
+        """Make filename safe for saving"""
+        # Remove dangerous characters
+        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        safe_filename = "".join(c for c in filename if c in safe_chars)
+        
+        # Prevent empty filename
+        if not safe_filename:
+            safe_filename = "received_file"
+        
+        # Add counter if file exists
+        counter = 1
+        original_name = safe_filename
+        while os.path.exists(safe_filename):
+            name, ext = os.path.splitext(original_name)
+            safe_filename = f"{name}_{counter}{ext}"
+            counter += 1
+        
+        return safe_filename
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -840,6 +1003,153 @@ class LSNPPeer:
             self.send_message_to_peer(peer_id, msg)
 
         print(f"Revoked token: {token}")
+    
+    def send_file_offer(self, target_user_id, filepath, description=""):
+        """Send a file offer to a specific user"""
+        if not os.path.exists(filepath):
+            print(f"File not found: {filepath}")
+            return
+        
+        filename = os.path.basename(filepath)
+        filesize = os.path.getsize(filepath)
+        filetype = self._guess_file_type(filename)
+        
+        # Check if user exists
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return
+        
+        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
+        
+        # Extract file ID from the message for tracking
+        parsed_msg = self.message_parser.parse_message(msg)
+        file_id = parsed_msg.fields.get("FILEID")
+        
+        # Store file info for sending chunks
+        self.file_transfers[file_id] = {
+            "filepath": filepath,
+            "target_user": target_user_id,
+            "filename": filename,
+            "filesize": filesize,
+            "sent_chunks": 0,
+            "status": "offered"
+        }
+        
+        self.send_message_to_peer(target_user_id, msg)
+        print(f"File offer sent to {target_user_id}: {filename}")
+
+    def send_file_chunks(self, file_id, chunk_size=1024):
+        """Send file chunks for an accepted file transfer"""
+        if file_id not in self.file_transfers:
+            print(f"File transfer {file_id} not found")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                chunks.append(encoded_chunk)
+            
+            total_chunks = len(chunks)
+            
+            # Send each chunk
+            for i, chunk_data in enumerate(chunks):
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
+                )
+                self.send_message_to_peer(target_user_id, msg)
+                time.sleep(0.1)  # Small delay between chunks
+                
+                if self.verbose:
+                    display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
+            
+            print(f"Sent {total_chunks} chunks for file {file_id}")
+            
+        except Exception as e:
+            print(f"Error sending file chunks: {e}")
+
+    # ====== FILE SENDING (HELPERS) ======
+    def accept_file(self, file_id):
+        """Accept a pending file offer"""
+        if file_id not in self.pending_file_offers:
+            print(f"No pending file offer with ID: {file_id}")
+            return
+        
+        offer_info = self.pending_file_offers[file_id]
+        print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
+        
+        # Move to active transfers
+        self.file_transfers[file_id] = {
+            "sender": offer_info["sender"],
+            "filename": offer_info["filename"],
+            "filesize": offer_info["filesize"],
+            "filetype": offer_info["filetype"],
+            "total_chunks": 0,  # Will be set when first chunk arrives
+            "received_chunks": 0,
+            "start_time": time.time()
+        }
+
+    def reject_file(self, file_id):
+        """Reject a pending file offer"""
+        if file_id not in self.pending_file_offers:
+            print(f"No pending file offer with ID: {file_id}")
+            return
+        
+        offer_info = self.pending_file_offers[file_id]
+        print(f"Rejected file: {offer_info['filename']} from {offer_info['sender']}")
+        
+        # Remove from pending offers
+        del self.pending_file_offers[file_id]
+
+    def _guess_file_type(self, filename):
+        """Guess MIME type from filename extension"""
+        ext = os.path.splitext(filename)[1].lower()
+        mime_types = {
+            '.txt': 'text/plain',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.mp3': 'audio/mpeg',
+            '.mp4': 'video/mp4',
+            '.zip': 'application/zip'
+        }
+        return mime_types.get(ext, 'application/octet-stream')
+    
+    def list_file_transfers(self):
+        """List pending file offers and active transfers"""
+        print("\n--- File Transfers ---")
+        
+        if self.pending_file_offers:
+            print("Pending Offers:")
+            for file_id, offer in self.pending_file_offers.items():
+                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}")
+        
+        if self.file_transfers:
+            print("Active Transfers:")
+            for file_id, transfer in self.file_transfers.items():
+                if "received_chunks" in transfer:
+                    print(f"  {file_id}: {transfer['filename']} - {transfer['received_chunks']}/{transfer.get('total_chunks', '?')} chunks")
+                else:
+                    print(f"  {file_id}: {transfer['filename']} - {transfer['status']}")
+        
+        if not self.pending_file_offers and not self.file_transfers:
+            print("No active file transfers")
+        
+        print("---------------------\n")
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
@@ -970,6 +1280,40 @@ class LSNPPeer:
                 self.send_revoke(token)
             else:
                 print("Usage: revoke <TOKEN>")
+                
+        elif cmd == "file_offer":
+            if len(parts) > 2:
+                target_user = parts[1]
+                filepath = parts[2]
+                description = ' '.join(parts[3:]) if len(parts) > 3 else ""
+                self.send_file_offer(target_user, filepath, description)
+            else:
+                print("Usage: file_offer <user_id> <filepath> [description]")
+
+        elif cmd == "send_file":
+            if len(parts) > 1:
+                file_id = parts[1]
+                chunk_size = int(parts[2]) if len(parts) > 2 else 1024
+                self.send_file_chunks(file_id, chunk_size)
+            else:
+                print("Usage: send_file <file_id> [chunk_size]")
+
+        elif cmd == "accept_file":
+            if len(parts) > 1:
+                file_id = parts[1]
+                self.accept_file(file_id)
+            else:
+                print("Usage: accept_file <file_id>")
+
+        elif cmd == "reject_file":
+            if len(parts) > 1:
+                file_id = parts[1]
+                self.reject_file(file_id)
+            else:
+                print("Usage: reject_file <file_id>")
+
+        elif cmd == "files":
+            self.list_file_transfers()
         # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":
             self.verbose = not self.verbose

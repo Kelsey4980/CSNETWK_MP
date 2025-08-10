@@ -318,6 +318,73 @@ class MessageBuilder:
         
         return "\n".join(message_parts)
     
+    def build_file_offer(self, to_user_id: str, filename: str, filesize: int, filetype: str, description: str = "") -> str:
+        """
+        Build a FILE_OFFER message
+        Format: TYPE, FROM, TO, FILENAME, FILESIZE, FILETYPE, FILEID, DESCRIPTION, TIMESTAMP, TOKEN
+        """
+        message_id = self.generate_message_id()
+        file_id = self.generate_message_id()  # Use same generation for file ID
+        token = self.get_cached_token("file")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: FILE_OFFER",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"FILENAME: {filename}",
+            f"FILESIZE: {filesize}",
+            f"FILETYPE: {filetype}",
+            f"FILEID: {file_id}",
+            f"DESCRIPTION: {description}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+
+    def build_file_chunk(self, to_user_id: str, file_id: str, chunk_index: int, total_chunks: int, chunk_size: int, data: str) -> str:
+        """
+        Build a FILE_CHUNK message
+        Format: TYPE, FROM, TO, FILEID, CHUNK_INDEX, TOTAL_CHUNKS, CHUNK_SIZE, TOKEN, DATA
+        """
+        token = self.get_cached_token("file")
+        
+        message_parts = [
+            f"TYPE: FILE_CHUNK",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"FILEID: {file_id}",
+            f"CHUNK_INDEX: {chunk_index}",
+            f"TOTAL_CHUNKS: {total_chunks}",
+            f"CHUNK_SIZE: {chunk_size}",
+            f"TOKEN: {token}",
+            f"DATA: {data}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+
+    def build_file_received(self, to_user_id: str, file_id: str, status: str = "COMPLETE") -> str:
+        """
+        Build a FILE_RECEIVED message
+        Format: TYPE, FROM, TO, FILEID, STATUS, TIMESTAMP
+        """
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: FILE_RECEIVED",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"FILEID: {file_id}",
+            f"STATUS: {status}",
+            f"TIMESTAMP: {timestamp}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
     def validate_message_format(self, message: str) -> Dict[str, Any]:
         """
         Validate that a built message follows proper LSNP format
