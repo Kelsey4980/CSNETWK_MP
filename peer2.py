@@ -8,6 +8,7 @@ import base64
 import os
 import queue
 from typing import Dict, Any
+import ast
 
 from message_builder import MessageBuilder
 from message_parser import MessageParser, MessageType
@@ -476,13 +477,13 @@ class LSNPPeer:
         """Accept a REVOKE message"""
         token = parsed_message.fields.get("TOKEN")
 
-        if isinstance(token, list):
+        # silent sync of revoked tokens
+        if isinstance(token, str) and token.startswith('[') and token.endswith(']'):
+            token = ast.literal_eval(token)
             for t in token:
                 if t not in self.revoked_tokens_others:
                     self.revoked_tokens_others.append(t)
-
-            print(self.revoked_tokens_others)
-            return  # No printing, silent update
+            return
 
          # check if token is already revoked
         if token in self.revoked_tokens_others:
