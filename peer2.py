@@ -471,7 +471,7 @@ class LSNPPeer:
             display_manager.log_debug(f"Token revoked by peer: {token}")
     
     def _handle_file_offer_message(self, parsed_message):
-        """Handle FILE_OFFER messages"""
+        """Handle FILE_OFFER messages with yes/no prompt"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
         filename = parsed_message.fields.get("FILENAME")
@@ -500,6 +500,9 @@ class LSNPPeer:
         
         if self.verbose:
             display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
+        
+        # Auto-prompt for acceptance (this will be handled by the message formatter)
+        # The decision will be made via the accept_file/reject_file commands
 
     def _handle_file_chunk_message(self, parsed_message):
         """Handle FILE_CHUNK messages"""
@@ -556,7 +559,7 @@ class LSNPPeer:
             display_manager.log_debug(f"File transfer confirmation from {sender_id}: {file_id} - {status}")
     
     def _handle_ack_message(self, parsed_message):
-        """Handle received ACK messages"""
+        """Handle received ACK messages and trigger automatic file sending"""
         msg_id = parsed_message.fields.get("MESSAGE_ID")
         status = parsed_message.fields.get("STATUS")
         
@@ -569,6 +572,31 @@ class LSNPPeer:
             if msg_id in self.pending_acks:
                 if self.verbose:
                     display_manager.log_debug(f"Received ACK for message {msg_id} with status: {status}")
+                
+                # Check if this ACK is for a file offer
+                ack_info = self.pending_acks[msg_id]
+                message = ack_info['message']
+                
+                # Parse the original message to check if it was a file offer
+                try:
+                    parsed_original = self.message_parser.parse_message(message)
+                    if parsed_original and parsed_original.message_type == MessageType.FILE_OFFER:
+                        file_id = parsed_original.fields.get("FILEID")
+                        if file_id and file_id in self.file_transfers:
+                            # Automatically start sending file chunks
+                            if self.verbose:
+                                display_manager.log_debug(f"File offer {file_id} was ACKed, starting automatic file transfer")
+                            
+                            # Start sending chunks in a separate thread to avoid blocking
+                            threading.Thread(
+                                target=self._auto_send_file_chunks, 
+                                args=(file_id,), 
+                                daemon=True
+                            ).start()
+                except Exception as e:
+                    if self.verbose:
+                        display_manager.log_warning(f"Error checking ACK for file offer: {e}")
+                
                 del self.pending_acks[msg_id]
             elif self.verbose:
                 display_manager.log_debug(f"Received ACK for unknown message {msg_id}")
@@ -1037,7 +1065,7 @@ class LSNPPeer:
             parsed_msg = self.message_parser.parse_message(msg)
             file_id = parsed_msg.fields.get("FILEID")
             
-            # Store file info for sending chunks (use resolved path)
+            # Store file info for automatic sending (use resolved path)
             self.file_transfers[file_id] = {
                 "filepath": resolved_path,
                 "target_user": target_user_id,
@@ -1047,10 +1075,12 @@ class LSNPPeer:
                 "status": "offered"
             }
             
-            # Send with ACK tracking
+            # Send with ACK tracking - chunks will be sent automatically when ACK is received
             if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
                 print(f"File offer sent to {target_user_id}: {filename}")
                 print(f"  Source: {resolved_path}")
+                print(f"  File ID: {file_id}")
+                print("File will be sent automatically once accepted.")
             else:
                 # Clean up on send failure
                 if file_id in self.file_transfers:
@@ -1173,7 +1203,7 @@ class LSNPPeer:
         return safe_filename
 
     def accept_file(self, file_id):
-        """Accept a pending file offer"""
+        """Accept a pending file offer and automatically request file chunks"""
         if file_id not in self.pending_file_offers:
             print(f"No pending file offer with ID: {file_id}")
             return
@@ -1191,6 +1221,11 @@ class LSNPPeer:
             "received_chunks": 0,
             "start_time": time.time()
         }
+        
+        # Send acceptance signal back to sender (optional ACK or start sending)
+        # The sender should start sending chunks automatically after the file offer ACK
+        if self.verbose:
+            display_manager.log_debug(f"File {file_id} accepted, ready to receive chunks")
 
     def reject_file(self, file_id):
         """Reject a pending file offer"""
@@ -1301,6 +1336,64 @@ class LSNPPeer:
             
         except Exception as e:
             print(f"Error listing files directory: {e}")
+    
+    def _auto_send_file_chunks(self, file_id, chunk_size=1024):
+        """Automatically send file chunks after offer acceptance"""
+        if file_id not in self.file_transfers:
+            if self.verbose:
+                display_manager.log_warning(f"Cannot auto-send chunks for unknown file transfer: {file_id}")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        if self.verbose:
+            display_manager.log_debug(f"Auto-sending file chunks for {file_id}")
+        
+        # Small delay to ensure the recipient is ready
+        time.sleep(0.5)
+        
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                chunks.append(encoded_chunk)
+            
+            total_chunks = len(chunks)
+            successful_chunks = 0
+            
+            print(f"Starting automatic file transfer: {transfer_info['filename']} ({total_chunks} chunks)")
+            
+            # Send each chunk with ACK tracking
+            for i, chunk_data in enumerate(chunks):
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
+                )
+                
+                if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+                    successful_chunks += 1
+                    if self.verbose:
+                        display_manager.log_debug(f"Auto-sent chunk {i + 1}/{total_chunks} for file {file_id}")
+                    time.sleep(0.1)  # Small delay between chunks
+                else:
+                    print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
+            
+            if successful_chunks == total_chunks:
+                print(f"File transfer completed: {transfer_info['filename']} ({total_chunks} chunks sent)")
+                transfer_info["status"] = "sent"
+            else:
+                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
+                
+        except Exception as e:
+            print(f"Error in automatic file transfer: {e}")
+            if self.verbose:
+                display_manager.log_warning(f"Auto file transfer failed for {file_id}: {e}")
     
     # ====== ACK TIMEOUT & RETRY ======
     def _ack_timeout_checker(self):
@@ -1514,19 +1607,12 @@ class LSNPPeer:
                 self.send_file_offer(target_user, filepath, description)
             else:
                 print("Usage: file_offer <user_id> <filepath> [description]")
-
-        elif cmd == "send_file":
-            if len(parts) > 1:
-                file_id = parts[1]
-                chunk_size = int(parts[2]) if len(parts) > 2 else 1024
-                self.send_file_chunks(file_id, chunk_size)
-            else:
-                print("Usage: send_file <file_id> [chunk_size]")
-
+        
         elif cmd == "accept_file":
             if len(parts) > 1:
                 file_id = parts[1]
                 self.accept_file(file_id)
+                print(f"File {file_id} accepted. Transfer will begin automatically.")
             else:
                 print("Usage: accept_file <file_id>")
 

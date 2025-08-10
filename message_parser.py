@@ -317,11 +317,11 @@ class MessageParser:
                 return ""
 
             elif msg_type == MessageType.FILE_OFFER:
-                # "User alice is sending you a file do you accept?"
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
                 filename = message.fields.get("FILENAME", "")
-                return f"{timestamp_str} User {display_name} is sending you a file ({filename}). Do you accept?"
+                file_id = message.fields.get("FILEID", "")
+                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \nFile ID: {file_id}\nNote: Use 'accept_file {file_id}' to accept or 'reject_file {file_id}' to reject."
 
             elif msg_type == MessageType.FILE_CHUNK:
                 # Do not print anything until all chunks are completed
