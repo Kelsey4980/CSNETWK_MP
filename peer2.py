@@ -23,6 +23,7 @@ class LSNPPeer:
     PORT = 50999
     BROADCAST_IP = '255.255.255.255'
     DISCOVERY_INTERVAL = 300
+    DEFAULT_FILES_DIR = "files"
     
     # ====== INITIALIZATION ======
     def __init__(self, username=None, display_name=None, verbose=False):
@@ -62,6 +63,9 @@ class LSNPPeer:
         self.file_transfers = {}  # file_id -> file_info
         self.file_chunks = {}     # file_id -> {chunk_index: data}
         self.pending_file_offers = {}  # file_id -> offer_info
+
+        # Create default files directory if it doesn't exist
+        self._ensure_files_directory()
 
         # -- ACK & Retries
         self.pending_acks = {}  # message_id -> {'message': msg, 'target_ip': ip, 'retries': count, 'timestamp': time}
@@ -1007,12 +1011,18 @@ class LSNPPeer:
 
         def send_file_offer(self, target_user_id, filepath, description=""):
             """Send a file offer to a specific user"""
-            if not os.path.exists(filepath):
+            # Resolve the file path
+            resolved_path = self._resolve_file_path(filepath)
+            
+            if not resolved_path:
                 print(f"File not found: {filepath}")
+                if os.path.basename(filepath) == filepath:
+                    print(f"  Checked default directory: {os.path.join(self.DEFAULT_FILES_DIR, filepath)}")
+                print(f"  Checked as given path: {filepath}")
                 return
             
-            filename = os.path.basename(filepath)
-            filesize = os.path.getsize(filepath)
+            filename = os.path.basename(resolved_path)
+            filesize = os.path.getsize(resolved_path)
             filetype = self._guess_file_type(filename)
             
             # Check if user exists
@@ -1027,9 +1037,9 @@ class LSNPPeer:
             parsed_msg = self.message_parser.parse_message(msg)
             file_id = parsed_msg.fields.get("FILEID")
             
-            # Store file info for sending chunks
+            # Store file info for sending chunks (use resolved path)
             self.file_transfers[file_id] = {
-                "filepath": filepath,
+                "filepath": resolved_path,
                 "target_user": target_user_id,
                 "filename": filename,
                 "filesize": filesize,
@@ -1040,6 +1050,7 @@ class LSNPPeer:
             # Send with ACK tracking
             if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
                 print(f"File offer sent to {target_user_id}: {filename}")
+                print(f"  Source: {resolved_path}")
             else:
                 # Clean up on send failure
                 if file_id in self.file_transfers:
@@ -1092,7 +1103,7 @@ class LSNPPeer:
             except Exception as e:
                 print(f"Error sending file chunks: {e}")
 
-    # ====== FILE RECEIVING & SENDING ======
+    # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
     def _complete_file_transfer(self, file_id):
         """Complete file transfer by reassembling chunks"""
         transfer_info = self.file_transfers[file_id]
@@ -1109,15 +1120,16 @@ class LSNPPeer:
                     display_manager.log_warning(f"Missing chunk {i} for file {file_id}")
                 return
         
-        # Save file
+        # Save file to default directory
         filename = transfer_info["filename"]
-        safe_filename = self._make_safe_filename(filename)
+        save_path = self._get_save_path(filename)
         
         try:
-            with open(safe_filename, 'wb') as f:
+            with open(save_path, 'wb') as f:
                 f.write(file_data)
             
-            print(f"File transfer of {filename} is complete")
+            print(f"File received: {filename}")
+            print(f"  Saved to: {save_path}")
             
             # Send FILE_RECEIVED confirmation
             sender_id = transfer_info["sender"]
@@ -1125,7 +1137,7 @@ class LSNPPeer:
             self.send_message_to_peer(sender_id, msg)
             
             if self.verbose:
-                display_manager.log_debug(f"File saved as {safe_filename} ({len(file_data)} bytes)")
+                display_manager.log_debug(f"File saved as {save_path} ({len(file_data)} bytes)")
             
         except Exception as e:
             print(f"Error saving file {filename}: {e}")
@@ -1231,6 +1243,64 @@ class LSNPPeer:
             print("No active file transfers")
         
         print("---------------------\n")
+    
+    def _ensure_files_directory(self):
+        """Create the default files directory if it doesn't exist"""
+        try:
+            if not os.path.exists(self.DEFAULT_FILES_DIR):
+                os.makedirs(self.DEFAULT_FILES_DIR)
+                if self.verbose:
+                    display_manager.log_debug(f"Created default files directory: {self.DEFAULT_FILES_DIR}")
+        except Exception as e:
+            if self.verbose:
+                display_manager.log_warning(f"Could not create files directory: {e}")
+    
+    def _resolve_file_path(self, filepath):
+        """
+        Resolve file path with fallback logic:
+        1. Check if it's just a filename -> look in default directory
+        2. Check if it's a relative/absolute path that exists
+        3. Return None if file not found anywhere
+        """
+        # If it's just a filename (no path separators), check default directory first
+        if os.path.basename(filepath) == filepath:
+            default_path = os.path.join(self.DEFAULT_FILES_DIR, filepath)
+            if os.path.exists(default_path):
+                return default_path
+        
+        # Check if the original path exists (relative or absolute)
+        if os.path.exists(filepath):
+            return filepath
+        
+        # File not found anywhere
+        return None
+    
+    def _get_save_path(self, filename):
+        """Get the path where received files should be saved"""
+        return os.path.join(self.DEFAULT_FILES_DIR, self._make_safe_filename(filename))
+
+    def list_files_directory(self):
+        """List files in the default files directory"""
+        if not os.path.exists(self.DEFAULT_FILES_DIR):
+            print(f"Files directory '{self.DEFAULT_FILES_DIR}' does not exist")
+            return
+        
+        try:
+            files = os.listdir(self.DEFAULT_FILES_DIR)
+            if not files:
+                print(f"No files in '{self.DEFAULT_FILES_DIR}' directory")
+                return
+            
+            print(f"\n--- Files in '{self.DEFAULT_FILES_DIR}' directory ---")
+            for filename in sorted(files):
+                filepath = os.path.join(self.DEFAULT_FILES_DIR, filename)
+                if os.path.isfile(filepath):
+                    size = os.path.getsize(filepath)
+                    print(f"  {filename} ({size} bytes)")
+            print("-------------------------------------\n")
+            
+        except Exception as e:
+            print(f"Error listing files directory: {e}")
     
     # ====== ACK TIMEOUT & RETRY ======
     def _ack_timeout_checker(self):
@@ -1467,8 +1537,11 @@ class LSNPPeer:
             else:
                 print("Usage: reject_file <file_id>")
 
-        elif cmd == "files":
+        elif cmd == "file_transfers":
             self.list_file_transfers()
+        
+        elif cmd == "list_files":
+            self.list_files_directory()
         
         elif cmd == "ack_status":
             with self.ack_lock:
