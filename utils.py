@@ -180,7 +180,7 @@ class DisplayManager:
             for member in group_data["members"]:
                 print(f"    - {member}")
 
-    def load_avatar(path: str):
+    def load_avatar(self, path: str):
         with open(path, "rb") as f:
             data = f.read()
             encoded = base64.b64encode(data).decode("utf-8")
