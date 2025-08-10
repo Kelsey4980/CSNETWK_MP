@@ -270,6 +270,9 @@ class LSNPPeer:
 
         while self.running:
             try:
+                # clean messages regularly
+                self.clean_messages()
+
                 if send_profile:
                     self.broadcast_profile()
                 else:
@@ -331,7 +334,7 @@ class LSNPPeer:
         self._log_ip(parsed_message.sender_ip)
 
         # Send revocation list
-        self._send_revocation_list_to_peer(user_id)
+        """self._send_revocation_list_to_peer(user_id)"""
     
     def _handle_ping_message(self, parsed_message):
         """Handle PING messages for peer discovery"""
@@ -348,7 +351,7 @@ class LSNPPeer:
         self._log_ip(parsed_message.sender_ip)
 
         # Send revocation list
-        self._send_revocation_list_to_peer(user_id)
+        """self._send_revocation_list_to_peer(user_id)"""
     
     def _handle_dm_message(self, parsed_message):
         sender_id = (parsed_message.fields.get("FROM"))
@@ -502,15 +505,15 @@ class LSNPPeer:
         """Accept a REVOKE message"""
         token = parsed_message.fields.get("TOKEN")
 
-        # silent sync of revoked tokens
+        """# silent sync of revoked tokens
         if isinstance(token, str) and token.startswith('[') and token.endswith(']'):
             token = ast.literal_eval(token)
             for t in token:
                 if t not in self.revoked_tokens_others:
                     self.revoked_tokens_others.append(t)
-            return
+            return"""
 
-         # check if token is already revoked
+        # check if token is already revoked
         if token in self.revoked_tokens_others:
             if self.verbose:
                 display_manager.log_debug(f"Received REVOKE for an already revoked token: {token}")
@@ -518,6 +521,9 @@ class LSNPPeer:
 
         # add to revoked_tokens_others list
         self.revoked_tokens_others.append(token)
+
+        # clean up all messages
+        self.all_message.pop(token, None)
 
         if self.verbose:
             display_manager.log_debug(f"Token revoked by peer: {token}")
@@ -932,12 +938,42 @@ class LSNPPeer:
             display_manager.log_debug(f"Known peers updated with the members of '{group_name}' ({group_id})")
 
     # happens backend; just syncs all of the revoked tokens
-    def _send_revocation_list_to_peer(self, peer_id):
+    """def _send_revocation_list_to_peer(self, peer_id):
         now = time.time()
         TTL = 3600  # example TTL
             
         msg = self.message_builder.build_revoke(self.revoked_tokens_self )
-        self.send_message_to_peer(peer_id, msg)
+        self.send_message_to_peer(peer_id, msg)"""
+    
+    def clean_messages(self):
+        tokens_to_remove = []
+        for token, msg_data in self.all_message.items():
+            if not self.backend_security.is_token_valid(token, msg_data["type"]):
+                tokens_to_remove.append(token)
+
+        for token in tokens_to_remove:
+            del self.all_message[token]
+    
+    def print_msg_by_type(self, msg_type):
+        self.clean_messages()
+        flag = False
+
+        msg_type = msg_type.upper()
+        for token, msg_data in list(self.all_message.items()):
+            if msg_data["type"].value == msg_type:
+                parsed_message = msg_data["message"]
+                formatted_output = self.message_parser.format_message_output(
+                    parsed_message,
+                    self._get_peer_profiles_dict(),
+                    self.verbose
+                )
+                print(formatted_output)
+
+                flag = True
+
+        if not flag:
+            if self.verbose:
+                display_manager.log_warning(f"No messages active.")
 
     def view_posts(self):
         now = time.time()
@@ -1976,8 +2012,13 @@ class LSNPPeer:
             print(self.revoked_tokens_self)
             print(self.revoked_tokens_others)
 
-        elif cmd == "view_posts":
-            self.view_posts()
+        elif cmd == "print_all":
+            if len(parts) > 1:
+                type = parts[1]
+                print(f"All messages:")
+                self.print_msg_by_type(type)
+            else:
+                print("Usage: print_all <MESSAGE_TYPE>")
 
         # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":
