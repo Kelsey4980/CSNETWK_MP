@@ -140,13 +140,13 @@ class LSNPPeer:
                 if sender_user_id == self.user_id:
                     continue
 
+                msg_type = parsed_message.message_type
+                msg_id = parsed_message.fields.get("MESSAGE_ID")
+
                 # Process message (this handles ACKs internally now)
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
                     continue
-                
-                msg_type = parsed_message.message_type
-                msg_id = parsed_message.fields.get("MESSAGE_ID")
                 
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
                 no_ack_types = {MessageType.ACK}
@@ -384,7 +384,6 @@ class LSNPPeer:
 
         if user_id in self.followers:
             self.posts[post_timestamp]["likers"].add(user_id)
-            print(self.posts)
         else:
             print(f"User {user_id} is not following you.")
 

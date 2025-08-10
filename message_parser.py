@@ -283,6 +283,22 @@ class MessageParser:
                 # ack: do not display anything (handled by verbose log in LSNPPeer)
                 return ""
             
+            elif msg_type == MessageType.LIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} likes your post [{post_timestamp}]"
+            
+            elif msg_type == MessageType.UNLIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} unlikes your post [{post_timestamp}]"
+            
             elif msg_type == MessageType.FOLLOW:
                 # final: “User alice has followed you”
                 follower_user_id = message.fields.get("FROM")
