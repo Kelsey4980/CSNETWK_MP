@@ -210,7 +210,7 @@ class MessageParser:
                 message.is_valid = False
 
         elif message.message_type == MessageType.TICTACTOE_MOVE:
-            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "POSITION", "TURN", "TIMESTAMP", "TOKEN"]):
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "POSITION", "TURN", "TOKEN"]):
                 message.validation_errors.append(f"{message.message_type.value} message missing required fields")
                 message.is_valid = False
 
@@ -332,7 +332,9 @@ class MessageParser:
                 sender_user_id = message.fields.get("FROM")
                 sender_display_name = message.get_display_name(peer_profiles)
 
-                return f"{timestamp_str} User {sender_display_name} is inviting you to play tic-tac-toe"
+                game_id = message.fields.get("GAME_ID")
+
+                return f"{timestamp_str} User {sender_display_name} is inviting you to play tic-tac-toe. Game ID: {game_id}"
             
             elif msg_type == MessageType.TICTACTOE_MOVE:
                 # final: “User alice played X at position 5”
@@ -341,7 +343,7 @@ class MessageParser:
                 symbol = message.fields.get("SYMBOL")
                 position = message.fields.get("POSITION")
 
-                return f"{timestamp_str} User {sender_display_name} played {symbol} at position {position}"
+                return f"\n{timestamp_str} User {sender_display_name} played: {symbol} at position {position}"
             
             elif msg_type == MessageType.TICTACTOE_RESULT:
                 # final: “User alice (X) won with 0,1,2” OR “You (X) won with 0,1,2” OR "The game ended in a draw"

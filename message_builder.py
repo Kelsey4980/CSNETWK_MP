@@ -334,12 +334,11 @@ class MessageBuilder:
         
         return "\n".join(message_parts)
     
-    def build_tictactoe_move(self, to_user_id: str, symbol: str, position: str, turn: str) -> str:
+    def build_tictactoe_move(self, to_user_id: str, game_id: str, symbol: str, position: str, turn: str) -> str:
         """
         Build a TICTACTOE_MOVE message
         Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, POSITION, SYMBOL, TURN, TOKEN
         """
-        game_id = self.generate_game_id()
         message_id = self.generate_message_id()
         token = self.get_cached_token("game")
         
@@ -358,12 +357,11 @@ class MessageBuilder:
         
         return "\n".join(message_parts)
     
-    def build_tictactoe_result(self, to_user_id: str, symbol: str, result: str, winning_line: str) -> str:
+    def build_tictactoe_result(self, to_user_id: str, game_id: str, symbol: str, result: str, winning_line: str) -> str:
         """
         Build a TICTACTOE_RESULT message
         Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, RESULT, SYMBOL, WINNING_LINE, TIMESTAMP
         """
-        game_id = self.generate_game_id()
         message_id = self.generate_message_id()
         token = self.get_cached_token("game")
         timestamp = int(time.time())
