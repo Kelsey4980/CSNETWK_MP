@@ -139,7 +139,7 @@ class LSNPPeer:
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
                 # Validate token for message types with TOKEN field
-                no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK}
+                no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK, MessageType.REVOKE}
 
                 # Validate Token
                 token_pass = True

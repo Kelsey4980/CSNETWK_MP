@@ -1,5 +1,6 @@
 import time
 from dictionary import MESSAGE_TYPE_TO_SCOPE, MessageType, MessageScope 
+from utils import display_manager
 
 class BackendSecurity:
      """
@@ -19,7 +20,7 @@ class BackendSecurity:
                # check if the token format is valid
                token_parts = token.split("|")
                if len(token_parts) != 3:
-                    print(f"Invalid token format: {token}")
+                    display_manager.log_debug(f"Invalid token format: {token}")
                     return False
                
                user_id, timestamp_str, scope = token_parts
@@ -29,18 +30,19 @@ class BackendSecurity:
 
                # [1] check if not yet expired
                if current_time > timestamp:
-                    print(f"Token expired: {token}")
+                    display_manager.log_debug(f"Token expired: {token}")
                     return False
                
                # [2] check if right scope
                scope_check = self.is_scope_valid(scope, type)
                if (not scope_check):
-                    print(f"Token scope invalid: {token}")
+                    display_manager.log_debug(f"Token scope invalid: {token}")
                     return False
                
                # [3] check if revoked
                if token in self.revoked_tokens_self or token in self.revoked_tokens_others:
-                    print(f"Token revoked: {token}")
+                    display_manager.log_debug(f"You have received a token that has been revoked: {token}")
+                    display_manager.log_debug(f"Message from {user_id} is rejected.")
                     return False
                
                return True
