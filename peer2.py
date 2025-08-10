@@ -1520,28 +1520,15 @@ class LSNPPeer:
         # TODO: Check if working/correct
         elif cmd == "like":
             if len(parts) > 1:
-                post_timestamp = str(parts[1])
-
-                today = datetime.now().date()
-                dt = datetime.strptime(f"{today} {post_timestamp}", "%Y-%m-%d %H:%M:%S")
-
-                converted_timestamp = dt.timestamp()
-
-                print(converted_timestamp)
-
-                self.send_like(converted_timestamp)
+                post_timestamp = float(parts[1])
+                self.send_like(post_timestamp)
             else:
                 print("Usage: like <post_timestamp>")
         # TODO: Check if working/correct
         elif cmd == "unlike":
             if len(parts) > 1:
-                post_timestamp = str(parts[1])
-
-                today = datetime.now().date()
-                dt = datetime.strptime(f"{today} {post_timestamp}", "%Y-%m-%d %H:%M:%S")
-
-                converted_timestamp = dt.timestamp()
-                self.send_unlike(converted_timestamp)
+                post_timestamp = float(parts[1])
+                self.send_unlike(post_timestamp)
             else:
                 print("Usage: unlike <post_timestamp>")
         # ✅
