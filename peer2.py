@@ -513,7 +513,7 @@ class LSNPPeer:
             display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
 
     def _handle_file_chunk_message(self, parsed_message):
-        """Handle FILE_CHUNK messages - DEBUG VERSION"""
+        """Handle FILE_CHUNK messages - FIXED VERSION"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
         chunk_index_str = parsed_message.fields.get("CHUNK_INDEX")
@@ -562,12 +562,13 @@ class LSNPPeer:
                 print(f"DEBUG RECV: Auto-accepting file on first chunk")
                 offer_info["accepted"] = True
                 
+                # FIXED: Use the total_chunks from the chunk message, not 0
                 self.file_transfers[file_id] = {
                     "sender": sender_id,
                     "filename": offer_info["filename"],
                     "filesize": offer_info["filesize"],
                     "filetype": offer_info["filetype"],
-                    "total_chunks": total_chunks,
+                    "total_chunks": total_chunks,  # FIXED: Use actual total_chunks
                     "received_chunks": 0,
                     "start_time": time.time()
                 }
@@ -581,6 +582,11 @@ class LSNPPeer:
             print(f"DEBUG RECV: ERROR - unknown file transfer: {file_id}")
             print(f"DEBUG RECV: Known transfers: {list(self.file_transfers.keys())}")
             return
+        else:
+            # FIXED: Update total_chunks if this is the first chunk and it wasn't set properly
+            if self.file_transfers[file_id]["total_chunks"] == 0:
+                print(f"DEBUG RECV: Updating total_chunks from 0 to {total_chunks}")
+                self.file_transfers[file_id]["total_chunks"] = total_chunks
         
         # Store chunk
         if file_id not in self.file_chunks:
@@ -593,14 +599,14 @@ class LSNPPeer:
         
         print(f"DEBUG RECV: Stored chunk {chunk_index}")
         print(f"DEBUG RECV: Total chunks stored: {len(self.file_chunks[file_id])}")
-        print(f"DEBUG RECV: Expected total chunks: {total_chunks}")
+        print(f"DEBUG RECV: Expected total chunks: {self.file_transfers[file_id]['total_chunks']}")
         
         # Check if all chunks received
-        if len(self.file_chunks[file_id]) == total_chunks:
+        if len(self.file_chunks[file_id]) == self.file_transfers[file_id]["total_chunks"]:
             print(f"DEBUG RECV: All chunks received, completing transfer")
             self._complete_file_transfer(file_id)
         else:
-            print(f"DEBUG RECV: Still waiting for more chunks")
+            print(f"DEBUG RECV: Still waiting for more chunks ({len(self.file_chunks[file_id])}/{self.file_transfers[file_id]['total_chunks']})")
 
 
     def _handle_file_received_message(self, parsed_message):
