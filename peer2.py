@@ -54,14 +54,18 @@ class LSNPPeer:
         self.known_ips = set()
         self.following = set()
         self.followers = set()
-        self.posts = {} # posts you sent, used for storing likes
-        self.received_posts = {} # posts you received, used for sending likes/unlikes
         self.groups = {} # group stored
-        self.all_messages = [] # stores ALL messages
-        self.revoked_tokens_others = [] # revoked tokens from others
-        self.revoked_tokens_self = [] # revoked tokens from self
         self.running = False
         self.verbose = verbose
+
+        # -- Revoke Tokens
+        self.revoked_tokens_others = [] # revoked tokens from others
+        self.revoked_tokens_self = [] # revoked tokens from self
+
+        # -- Message Storage
+        self.posts = {} # posts you sent, used for storing likes
+        self.received_posts = {} # posts you received, used for sending likes/unlikes
+        self.all_message = {}
 
         # -- File Sending
         self.file_transfers = {}  # file_id -> file_info
@@ -159,23 +163,6 @@ class LSNPPeer:
                             display_manager.log_debug(f"You have received a message from {sender_user_id} with invalid token.")
 
                         continue
-                    
-                msg_type = parsed_message.message_type
-                msg_id = parsed_message.fields.get("MESSAGE_ID")
-
-                # Validate token for message types with TOKEN field
-                no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK, MessageType.REVOKE}
-
-                # Validate Token
-                token_pass = True
-                if msg_type not in no_token_types:
-                    token_pass = self.backend_security.is_token_valid(parsed_message.fields.get("TOKEN"), msg_type)
-
-                    if not token_pass:
-                        if self.verbose:
-                            display_manager.log_debug(f"You have received a message from {sender_user_id} with invalid token.")
-
-                        continue
 
                 # Process message (this handles ACKs internally now)
                 parsed_message = self._process_message(message, addr[0])
@@ -189,7 +176,12 @@ class LSNPPeer:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
 
-                    self.all_messages.append(parsed_message)
+                    token = parsed_message.fields.get("TOKEN")
+                    self.all_message[token] = {
+                        "message": parsed_message,
+                        "type": msg_type
+                    }
+
                     if self.verbose:
                         display_manager.log_debug(f"Sent ACK for message ID: {msg_id}")
 
