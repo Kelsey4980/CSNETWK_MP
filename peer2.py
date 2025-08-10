@@ -7,6 +7,7 @@ import secrets
 import base64
 import os
 import queue
+from datetime import datetime
 from typing import Dict, Any
 
 from message_builder import MessageBuilder
@@ -784,7 +785,11 @@ class LSNPPeer:
         msg = self.message_builder.build_post(content, ttl_seconds)
         parsed_msg = self.message_parser.parse_message(msg)
         current_time_with_ttl = parsed_msg.fields.get("TOKEN").split("|")[1] # gets 2nd part of token
-        current_time = float(current_time_with_ttl) - float(ttl_seconds) # subtracts ttl from post time
+        ttl_sec = parsed_msg.fields.get("TTL")
+
+        current_time = float(current_time_with_ttl) - float(ttl_sec) # subtracts ttl from post time
+
+        print("curtime", current_time)
 
         # TODO: check if correct
         peers_to_send_to = [uid for uid in self.followers if uid != self.user_id]
@@ -1512,15 +1517,23 @@ class LSNPPeer:
         # TODO: Check if working/correct
         elif cmd == "like":
             if len(parts) > 1:
-                post_timestamp = float(parts[1])
-                self.send_like(post_timestamp)
+                post_timestamp = str(parts[1])
+
+                timestamp = datetime.strptime(post_timestamp, "%H:%M:%S")
+
+                converted_timestamp = datetime.timestamp(timestamp)
+                self.send_like(converted_timestamp)
             else:
                 print("Usage: like <post_timestamp>")
         # TODO: Check if working/correct
         elif cmd == "unlike":
             if len(parts) > 1:
-                post_timestamp = float(parts[1])
-                self.send_unlike(post_timestamp)
+                post_timestamp = str(parts[1])
+
+                timestamp = datetime.strptime(post_timestamp, "%H:%M:%S")
+
+                converted_timestamp = datetime.timestamp(timestamp)
+                self.send_unlike(converted_timestamp)
             else:
                 print("Usage: unlike <post_timestamp>")
         # ✅
