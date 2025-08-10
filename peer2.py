@@ -142,6 +142,11 @@ class LSNPPeer:
                 
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
+
+                # Validate Token
+                token_pass = False
+                token_pass = self.backend_security.is_token_valid(parsed_message.fields.get("TOKEN"), msg_type.name)
+                print(token_pass)
                 
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
                 no_ack_types = {MessageType.ACK}

@@ -100,7 +100,7 @@ class MessageBuilder:
         Format: TYPE, FROM, TO, CONTENT, TIMESTAMP, MESSAGE_ID, TOKEN
         """
         message_id = self.generate_message_id()
-        token = self.get_cached_token("direct")
+        token = self.get_cached_token("chat")
         timestamp = int(time.time())
         
         message_parts = [

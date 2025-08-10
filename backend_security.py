@@ -13,6 +13,8 @@ class BackendSecurity:
      def is_token_valid(self, token, type):
           current_time = time.time()
 
+          print(token, type)
+
           try:
                # check if the token format is valid
                token_parts = token.split("|")
