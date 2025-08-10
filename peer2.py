@@ -148,7 +148,7 @@ class LSNPPeer:
 
                     if not token_pass:
                         if self.verbose:
-                            display_manager.log_debug(f"You received a message from {sender_user_id} with invalid token.")
+                            display_manager.log_debug(f"You have received a message from {sender_user_id} with invalid token.")
 
                         continue
 
