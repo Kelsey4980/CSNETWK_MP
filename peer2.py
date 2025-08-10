@@ -540,6 +540,7 @@ class LSNPPeer:
                 print(f"DEBUG RECV: Decoded content: {repr(decoded_test[:30])}")
             except Exception as e:
                 print(f"DEBUG RECV: ERROR decoding data: {e}")
+                return
         
         # Convert strings to integers
         try:
@@ -550,7 +551,7 @@ class LSNPPeer:
             print(f"DEBUG RECV: ERROR converting numbers: {e}")
             return
         
-        # Check file acceptance logic
+        # FIXED: Check file acceptance logic and create transfer info on first chunk
         if file_id in self.pending_file_offers:
             offer_info = self.pending_file_offers[file_id]
             print(f"DEBUG RECV: File offer status: {offer_info.get('accepted')}")
@@ -558,11 +559,25 @@ class LSNPPeer:
             if offer_info["accepted"] is False:
                 print(f"DEBUG RECV: File was rejected, ignoring chunk")
                 return
-            elif offer_info["accepted"] is not True:
+            elif offer_info["accepted"] is True:
+                # FIXED: Create file transfer info here with correct total_chunks from the actual chunk message
+                if file_id not in self.file_transfers:
+                    print(f"DEBUG RECV: Creating file transfer info on first chunk")
+                    self.file_transfers[file_id] = {
+                        "sender": sender_id,
+                        "filename": offer_info["filename"],
+                        "filesize": offer_info["filesize"],
+                        "filetype": offer_info["filetype"],
+                        "total_chunks": total_chunks,  # FIXED: Use actual total_chunks from chunk message
+                        "received_chunks": 0,
+                        "start_time": time.time()
+                    }
+                    self.file_chunks[file_id] = {}
+            else:
                 print(f"DEBUG RECV: Auto-accepting file on first chunk")
                 offer_info["accepted"] = True
                 
-                # FIXED: Use the total_chunks from the chunk message, not 0
+                # Create transfer info with correct total_chunks
                 self.file_transfers[file_id] = {
                     "sender": sender_id,
                     "filename": offer_info["filename"],
@@ -581,12 +596,8 @@ class LSNPPeer:
         elif file_id not in self.file_transfers:
             print(f"DEBUG RECV: ERROR - unknown file transfer: {file_id}")
             print(f"DEBUG RECV: Known transfers: {list(self.file_transfers.keys())}")
+            print(f"DEBUG RECV: Known offers: {list(self.pending_file_offers.keys())}")
             return
-        else:
-            # FIXED: Update total_chunks if this is the first chunk and it wasn't set properly
-            if self.file_transfers[file_id]["total_chunks"] == 0:
-                print(f"DEBUG RECV: Updating total_chunks from 0 to {total_chunks}")
-                self.file_transfers[file_id]["total_chunks"] = total_chunks
         
         # Store chunk
         if file_id not in self.file_chunks:
@@ -601,13 +612,12 @@ class LSNPPeer:
         print(f"DEBUG RECV: Total chunks stored: {len(self.file_chunks[file_id])}")
         print(f"DEBUG RECV: Expected total chunks: {self.file_transfers[file_id]['total_chunks']}")
         
-        # Check if all chunks received
+        # FIXED: Check if all chunks received
         if len(self.file_chunks[file_id]) == self.file_transfers[file_id]["total_chunks"]:
             print(f"DEBUG RECV: All chunks received, completing transfer")
             self._complete_file_transfer(file_id)
         else:
             print(f"DEBUG RECV: Still waiting for more chunks ({len(self.file_chunks[file_id])}/{self.file_transfers[file_id]['total_chunks']})")
-
 
     def _handle_file_received_message(self, parsed_message):
         """Handle FILE_RECEIVED messages"""
@@ -1278,7 +1288,7 @@ class LSNPPeer:
 
     # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
     def _complete_file_transfer(self, file_id):
-        """Complete file transfer - DEBUG VERSION"""
+        """Complete file transfer - FIXED VERSION"""
         print(f"DEBUG COMPLETE: Starting completion for {file_id}")
         
         if file_id not in self.file_transfers or file_id not in self.file_chunks:
@@ -1291,7 +1301,7 @@ class LSNPPeer:
         chunks = self.file_chunks[file_id]
         
         print(f"DEBUG COMPLETE: Transfer info: {transfer_info}")
-        print(f"DEBUG COMPLETE: Chunks available: {list(chunks.keys())}")
+        print(f"DEBUG COMPLETE: Chunks available: {sorted(chunks.keys())}")
         print(f"DEBUG COMPLETE: Expected chunks: {transfer_info['total_chunks']}")
         
         # Check for missing chunks
@@ -1304,7 +1314,7 @@ class LSNPPeer:
             print(f"DEBUG COMPLETE: ERROR - missing chunks: {missing_chunks}")
             return
         
-        # Reassemble file
+        # Reassemble file in correct order
         file_data = b""
         total_decoded_bytes = 0
         
@@ -1315,7 +1325,6 @@ class LSNPPeer:
                 
                 chunk_data = base64.b64decode(chunk_b64)
                 print(f"DEBUG COMPLETE: Chunk {i} decoded to {len(chunk_data)} bytes")
-                print(f"DEBUG COMPLETE: Chunk {i} content: {repr(chunk_data[:30])}")
                 
                 file_data += chunk_data
                 total_decoded_bytes += len(chunk_data)
@@ -1342,12 +1351,6 @@ class LSNPPeer:
             
             saved_size = os.path.getsize(save_path)
             print(f"DEBUG COMPLETE: File saved, size on disk: {saved_size}")
-            
-            # Verify by reading back
-            with open(save_path, 'rb') as f:
-                verify_data = f.read()
-            print(f"DEBUG COMPLETE: Verification read: {len(verify_data)} bytes")
-            print(f"DEBUG COMPLETE: Verification content: {repr(verify_data[:50])}")
             
             print(f"File received: {filename}")
             print(f"  Saved to: {save_path}")
@@ -1412,19 +1415,10 @@ class LSNPPeer:
         offer_info["accepted"] = True
         print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
         
-        # Move to active transfers
-        self.file_transfers[file_id] = {
-            "sender": offer_info["sender"],
-            "filename": offer_info["filename"],
-            "filesize": offer_info["filesize"],
-            "filetype": offer_info["filetype"],
-            "total_chunks": 0,  # Will be set when first chunk arrives
-            "received_chunks": 0,
-            "start_time": time.time()
-        }
+        # FIXED: Don't create file_transfers entry here - let it be created when first chunk arrives
+        # This prevents the total_chunks=0 issue
         
         # Send ACK using FILEID in the MESSAGE_ID field
-        # This is a workaround since file messages don't have MESSAGE_ID
         sender_id = offer_info["sender"]
         ack = self.message_builder.build_ack(file_id, "ACCEPTED")
         self.send_message_to_peer(sender_id, ack)
