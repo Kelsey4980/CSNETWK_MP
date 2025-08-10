@@ -479,7 +479,7 @@ class LSNPPeer:
             display_manager.log_debug(f"Token revoked by peer: {token}")
     
     def _handle_file_offer_message(self, parsed_message):
-        """Handle FILE_OFFER messages with yes/no prompt"""
+        """Handle FILE_OFFER messages with automatic acceptance/rejection"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
         filename = parsed_message.fields.get("FILENAME")
@@ -498,7 +498,8 @@ class LSNPPeer:
             "filesize": int(filesize),
             "filetype": filetype,
             "description": description,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "accepted": None  # None = pending, True = accepted, False = rejected
         }
         
         # Update peer info
@@ -508,29 +509,45 @@ class LSNPPeer:
         
         if self.verbose:
             display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
-        
-        # Auto-prompt for acceptance (this will be handled by the message formatter)
-        # The decision will be made via the accept_file/reject_file commands
 
     def _handle_file_chunk_message(self, parsed_message):
-        """Handle FILE_CHUNK messages"""
+        """Handle FILE_CHUNK messages - only accept if file was explicitly accepted"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
+
+        # Check if we have explicitly rejected this file
+        if file_id in self.pending_file_offers:
+            offer_info = self.pending_file_offers[file_id]
+            if offer_info["accepted"] is False:  # Explicitly rejected
+                if self.verbose:
+                    display_manager.log_warning(f"Ignoring chunk for rejected file {file_id}")
+                return  # Ignore silently
+            elif offer_info["accepted"] is not True:  # Still pending
+                if self.verbose:
+                    display_manager.log_warning(f"Received chunk for file {file_id} that hasn't been accepted yet")
+                return
+
         chunk_index = int(parsed_message.fields.get("CHUNK_INDEX"))
         total_chunks = int(parsed_message.fields.get("TOTAL_CHUNKS"))
         chunk_size = int(parsed_message.fields.get("CHUNK_SIZE"))
         data = parsed_message.fields.get("DATA")
         
-        # Check if we have accepted this file offer
-        if file_id not in self.pending_file_offers and file_id not in self.file_transfers:
+        # Check if we have explicitly accepted this file
+        if file_id in self.pending_file_offers:
+            offer_info = self.pending_file_offers[file_id]
+            if offer_info["accepted"] is not True:  # None (pending) or False (rejected)
+                if self.verbose:
+                    display_manager.log_warning(f"Received chunk for file {file_id} that hasn't been accepted yet")
+                return
+        elif file_id not in self.file_transfers:
             if self.verbose:
-                display_manager.log_warning(f"Received chunk for unknown/rejected file: {file_id}")
+                display_manager.log_warning(f"Received chunk for unknown file: {file_id}")
             return
         
-        # Initialize file transfer if first chunk
+        # Initialize file transfer if first chunk and file is accepted
         if file_id not in self.file_transfers:
             offer_info = self.pending_file_offers.get(file_id)
-            if offer_info:
+            if offer_info and offer_info["accepted"]:
                 self.file_transfers[file_id] = {
                     "sender": sender_id,
                     "filename": offer_info["filename"],
@@ -556,6 +573,7 @@ class LSNPPeer:
         # Check if all chunks received
         if len(self.file_chunks[file_id]) == total_chunks:
             self._complete_file_transfer(file_id)
+
 
     def _handle_file_received_message(self, parsed_message):
         """Handle FILE_RECEIVED messages"""
@@ -591,7 +609,7 @@ class LSNPPeer:
                     if parsed_original and parsed_original.message_type == MessageType.FILE_OFFER:
                         file_id = parsed_original.fields.get("FILEID")
                         if file_id and file_id in self.file_transfers:
-                            # Automatically start sending file chunks
+                            # The ACK means the recipient is ready to receive the file
                             if self.verbose:
                                 display_manager.log_debug(f"File offer {file_id} was ACKed, starting automatic file transfer")
                             
@@ -1216,12 +1234,21 @@ class LSNPPeer:
         return safe_filename
 
     def accept_file(self, file_id):
-        """Accept a pending file offer and automatically request file chunks"""
+        """Accept a pending file offer"""
         if file_id not in self.pending_file_offers:
             print(f"No pending file offer with ID: {file_id}")
             return
         
         offer_info = self.pending_file_offers[file_id]
+        
+        # Check if already processed
+        if offer_info["accepted"] is not None:
+            status = "accepted" if offer_info["accepted"] else "rejected"
+            print(f"File {file_id} already {status}")
+            return
+        
+        # Mark as accepted
+        offer_info["accepted"] = True
         print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
         
         # Move to active transfers
@@ -1235,8 +1262,7 @@ class LSNPPeer:
             "start_time": time.time()
         }
         
-        # Send acceptance signal back to sender (optional ACK or start sending)
-        # The sender should start sending chunks automatically after the file offer ACK
+        print(f"File {file_id} accepted. Ready to receive chunks.")
         if self.verbose:
             display_manager.log_debug(f"File {file_id} accepted, ready to receive chunks")
 
@@ -1247,10 +1273,22 @@ class LSNPPeer:
             return
         
         offer_info = self.pending_file_offers[file_id]
+        
+        # Check if already processed
+        if offer_info["accepted"] is not None:
+            status = "accepted" if offer_info["accepted"] else "rejected"
+            print(f"File {file_id} already {status}")
+            return
+        
+        # Mark as rejected
+        offer_info["accepted"] = False
         print(f"Rejected file: {offer_info['filename']} from {offer_info['sender']}")
         
-        # Remove from pending offers
+        # Remove from pending offers after marking as rejected
         del self.pending_file_offers[file_id]
+        
+        if self.verbose:
+            display_manager.log_debug(f"File {file_id} rejected and removed from pending offers")
 
     def _guess_file_type(self, filename):
         """Guess MIME type from filename extension"""
@@ -1277,7 +1315,15 @@ class LSNPPeer:
         if self.pending_file_offers:
             print("Pending Offers:")
             for file_id, offer in self.pending_file_offers.items():
-                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}")
+                status_text = ""
+                if offer["accepted"] is True:
+                    status_text = " (ACCEPTED)"
+                elif offer["accepted"] is False:
+                    status_text = " (REJECTED)"
+                else:
+                    status_text = " (PENDING)"
+                
+                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}{status_text}")
         
         if self.file_transfers:
             print("Active Transfers:")
