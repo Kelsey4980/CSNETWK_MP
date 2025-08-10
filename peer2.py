@@ -424,6 +424,7 @@ class LSNPPeer:
         """Accept a GROUP_CREATE message"""
         group_members = parsed_message.fields.get("MEMBERS")
         target_users = group_members.split(",")
+        
         group_name = parsed_message.fields.get("GROUP_NAME")
         group_id = parsed_message.fields.get("GROUP_ID")
         group_creator = parsed_message.fields.get("FROM")
@@ -941,15 +942,12 @@ class LSNPPeer:
         """Send a GROUP_CREATE to the members specified"""
         current_time = time.time()
 
-        target_users = group_members.split(",")
-        target_users = [user for user in target_users if user != self.user_id]
+        all_members = group_members.split(",")
+        target_users = [user for user in all_members if user != self.user_id]
         target_ips = [user.split("@")[1] for user in target_users]
-
         peer_ids = list(self.known_peers.keys())
         
         group_key = f"{group_id}|{self.user_id}"
-
-        print(target_users, peer_ids)
 
         # [PROBLEM] :: this only checks if the ID is in the creator's list of groups
         if group_key not in self.groups:
@@ -961,7 +959,7 @@ class LSNPPeer:
                 self.groups[group_key] = {
                     "id": group_id,
                     "name": group_name,
-                    "members": group_members,
+                    "members": target_users,
                     "creator": self.user_id
                 }
 
@@ -972,8 +970,9 @@ class LSNPPeer:
                 # print
                 print(f"New group created {group_key} -- '{group_name}' ({group_id})")
                 print(f"Members:")
-                for user_id in target_users:
-                    print(f"\t{user_id}\n")
+                for user_id in all_members:
+                    print(f"\t{user_id}")
+                print()
             else:
                 print("Group not created. Please make sure members are known.")
         else:
@@ -983,10 +982,6 @@ class LSNPPeer:
     def send_group_message(self, group_key, content):
         current_time = time.time()
         group_id, group_creator = group_key.split("|", 1)
-
-        print(group_key)
-        print(content)
-        print(group_creator, group_id)
 
         matching_key = None
         for key, group in self.groups.items():
@@ -1001,8 +996,6 @@ class LSNPPeer:
             target_users = [user for user in target_users if user != self.user_id]
 
             msg = self.message_builder.build_group_message(group_id, content, current_time)
-
-            print(msg)
 
             for user_id in target_users:
                 self.send_message_to_peer(user_id, msg)
