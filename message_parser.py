@@ -206,7 +206,7 @@ class MessageParser:
                 message.is_valid = False
         
         elif message.message_type == MessageType.FILE_OFFER:
-            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "TIMESTAMP", "TOKEN"]):
+            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "DESCRIPTION", "TIMESTAMP", "TOKEN"]):
                 message.validation_errors.append("FILE_OFFER message missing required fields")
                 message.is_valid = False
 
@@ -341,7 +341,8 @@ class MessageParser:
                 display_name = message.get_display_name(peer_profiles)
                 filename = message.fields.get("FILENAME", "")
                 file_id = message.fields.get("FILEID", "")
-                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n>> File ID: {file_id}\n>> NOTE: Use 'accept_file {file_id}' to accept or 'reject_file {file_id}' to reject."
+                description = message.fields.get("DESCRIPTION", "")
+                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n        File ID: {file_id}\n        Description: {description}\n        NOTE: Use 'accept_file {file_id}' to accept or 'ignore_file {file_id}' to ignore."
 
             elif msg_type == MessageType.FILE_CHUNK:
                 # Do not print anything until all chunks are completed

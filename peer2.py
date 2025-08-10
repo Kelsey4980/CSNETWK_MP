@@ -25,6 +25,7 @@ class LSNPPeer:
     BROADCAST_IP = '255.255.255.255'
     DISCOVERY_INTERVAL = 300
     DEFAULT_FILES_DIR = "files"
+    FILE_OFFER_EXPIRATION = 120
     
     # ====== INITIALIZATION ======
     def __init__(self, username=None, display_name=None, verbose=False):
@@ -479,7 +480,7 @@ class LSNPPeer:
             display_manager.log_debug(f"Token revoked by peer: {token}")
     
     def _handle_file_offer_message(self, parsed_message):
-        """Handle FILE_OFFER messages with automatic acceptance/rejection"""
+        """Handle FILE_OFFER messages with automatic acceptance"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
         filename = parsed_message.fields.get("FILENAME")
@@ -500,7 +501,7 @@ class LSNPPeer:
             "filetype": filetype,
             "description": description,
             "timestamp": time.time(),
-            "accepted": None,  # None = pending, True = accepted, False = rejected
+            "accepted": None,  # None = pending, True = accepted, False = ignored
             "message_id": message_id  # Add this line!
         }
         
@@ -541,7 +542,7 @@ class LSNPPeer:
             offer_info = self.pending_file_offers[file_id]
             
             if offer_info["accepted"] is False:
-                return  # File was rejected, ignore chunk
+                return  # File was ignored, ignore chunk
             elif offer_info["accepted"] is True:
                 # Create file transfer info here with correct total_chunks from the actual chunk message
                 if file_id not in self.file_transfers:
@@ -697,7 +698,7 @@ class LSNPPeer:
             display_manager.log_debug(f"Could not match ACK to any pending message or file transfer")
 
     # Fix for _handle_file_offer_message method
-        """Handle FILE_OFFER messages with automatic acceptance/rejection"""
+        """Handle FILE_OFFER messages with automatic acceptance/ignoring"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
         filename = parsed_message.fields.get("FILENAME")
@@ -718,7 +719,7 @@ class LSNPPeer:
             "filetype": filetype,
             "description": description,
             "timestamp": time.time(),
-            "accepted": None,  # None = pending, True = accepted, False = rejected
+            "accepted": None,  # None = pending, True = accepted, False = ignored
             "message_id": message_id  # Add this line!
         }
         
@@ -1360,7 +1361,7 @@ class LSNPPeer:
         
         # Check if already processed
         if offer_info["accepted"] is not None:
-            status = "accepted" if offer_info["accepted"] else "rejected"
+            status = "accepted" if offer_info["accepted"] else "ignored"
             print(f"File {file_id} already {status}")
             return
         
@@ -1378,8 +1379,8 @@ class LSNPPeer:
         if self.verbose:
             print(f"ACK sent to {sender_id} to trigger file transfer.")
 
-    def reject_file(self, file_id):
-        """Reject a pending file offer"""
+    def ignore_file(self, file_id):
+        """Ignore a pending file offer"""
         if file_id not in self.pending_file_offers:
             print(f"No pending file offer with ID: {file_id}")
             return
@@ -1388,19 +1389,23 @@ class LSNPPeer:
         
         # Check if already processed
         if offer_info["accepted"] is not None:
-            status = "accepted" if offer_info["accepted"] else "rejected"
-            print(f"File {file_id} already {status}")
+            if offer_info["accepted"] is True:
+                print(f"File {file_id} already accepted")
+            else:
+                # Check if it was auto-expired or manually ignored
+                elapsed = time.time() - offer_info["timestamp"]
+                if elapsed > self.FILE_OFFER_EXPIRATION:
+                    print(f"File {file_id} already expired and ignored")
+                else:
+                    print(f"File {file_id} already ignored")
             return
-        
-        # Mark as rejected
+
+        # Mark as ignored
         offer_info["accepted"] = False
-        print(f"Rejected file: {offer_info['filename']} from {offer_info['sender']}")
-        
-        # Remove from pending offers after marking as rejected
-        del self.pending_file_offers[file_id]
-        
+        print(f"Ignored file: {offer_info['filename']} from {offer_info['sender']}")
+
         if self.verbose:
-            display_manager.log_debug(f"File {file_id} rejected and removed from pending offers")
+            display_manager.log_debug(f"File {file_id} manually ignored")
 
     def _guess_file_type(self, filename):
         """Guess MIME type from filename extension"""
@@ -1421,19 +1426,32 @@ class LSNPPeer:
         return mime_types.get(ext, 'application/octet-stream')
     
     def list_file_transfers(self):
-        """List pending file offers and active transfers"""
+        """List pending file offers and active transfers (with automatic cleanup)"""
+        # Clean up expired offers first (marks them as ignored)
+        expired_count = self._cleanup_expired_file_offers()
+        
+        if expired_count > 0 and self.verbose:
+            display_manager.log_debug(f"Marked {expired_count} expired file offers as ignored")
+        
         print("\n--- File Transfers ---")
         
-        if self.pending_file_offers:
+        # Filter only offers that are not ignored or expired
+        visible_offers = {
+            fid: offer for fid, offer in self.pending_file_offers.items()
+            if offer["accepted"] is None or offer["accepted"] is True
+        }
+        
+        if visible_offers:
             print("Pending Offers:")
-            for file_id, offer in self.pending_file_offers.items():
+            for file_id, offer in visible_offers.items():
                 status_text = ""
                 if offer["accepted"] is True:
                     status_text = " (ACCEPTED)"
-                elif offer["accepted"] is False:
-                    status_text = " (REJECTED)"
                 else:
-                    status_text = " (PENDING)"
+                    # Show time remaining for pending offers
+                    elapsed = time.time() - offer["timestamp"]
+                    remaining = max(0, self.FILE_OFFER_EXPIRATION - elapsed)
+                    status_text = f" (PENDING - {remaining:.0f}s remaining)"
                 
                 print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}{status_text}")
         
@@ -1445,7 +1463,7 @@ class LSNPPeer:
                 else:
                     print(f"  {file_id}: {transfer['filename']} - {transfer['status']}")
         
-        if not self.pending_file_offers and not self.file_transfers:
+        if not visible_offers and not self.file_transfers:
             print("No active file transfers")
         
         print("---------------------\n")
@@ -1585,6 +1603,23 @@ class LSNPPeer:
         except Exception as e:
             print(f"Error in file transfer: {e}")
     
+    def _cleanup_expired_file_offers(self):
+        """Mark expired file offers as ignored (called from list_file_transfers)"""
+        current_time = time.time()
+        expired_offers = []
+        
+        for file_id, offer_info in self.pending_file_offers.items():
+            if offer_info["accepted"] is None:  # Only expire pending offers
+                if current_time - offer_info["timestamp"] > self.FILE_OFFER_EXPIRATION:
+                    expired_offers.append(file_id)
+        
+        for file_id in expired_offers:
+            self.pending_file_offers[file_id]["accepted"] = False
+            if self.verbose:
+                display_manager.log_debug(f"File offer {file_id} expired after {self.FILE_OFFER_EXPIRATION} seconds - marked as ignored")
+        
+        return len(expired_offers)
+
     # ====== ACK TIMEOUT & RETRY ======
     def _ack_timeout_checker(self):
         """Check for ACK timeouts and handle retries"""
@@ -1806,12 +1841,12 @@ class LSNPPeer:
             else:
                 print("Usage: accept_file <file_id>")
 
-        elif cmd == "reject_file":
+        elif cmd == "ignore_file":
             if len(parts) > 1:
                 file_id = parts[1]
-                self.reject_file(file_id)
+                self.ignore_file(file_id)
             else:
-                print("Usage: reject_file <file_id>")
+                print("Usage: ignore_file <file_id>")
 
         elif cmd == "file_transfers":
             self.list_file_transfers()
