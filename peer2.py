@@ -589,43 +589,121 @@ class LSNPPeer:
         msg_id = parsed_message.fields.get("MESSAGE_ID")
         status = parsed_message.fields.get("STATUS")
         
-        if not msg_id:
+        if self.verbose:
+            display_manager.log_debug(f"Received ACK with MESSAGE_ID={msg_id}, STATUS={status}")
+        
+        # First try to match by MESSAGE_ID (standard messages)
+        if msg_id:
+            with self.ack_lock:
+                if msg_id in self.pending_acks:
+                    if self.verbose:
+                        display_manager.log_debug(f"Received ACK for message {msg_id} with status: {status}")
+                    
+                    # Check if this ACK is for a file offer
+                    ack_info = self.pending_acks[msg_id]
+                    message = ack_info['message']
+                    
+                    # Parse the original message to check if it was a file offer
+                    try:
+                        parsed_original = self.message_parser.parse_message(message, ack_info['target_ip'])
+                        if parsed_original and parsed_original.message_type == MessageType.FILE_OFFER:
+                            file_id = parsed_original.fields.get("FILEID")
+                            if file_id and file_id in self.file_transfers:
+                                # The ACK means the recipient is ready to receive the file
+                                if self.verbose:
+                                    display_manager.log_debug(f"File offer {file_id} was ACKed, starting automatic file transfer")
+                                
+                                # Start sending chunks in a separate thread to avoid blocking
+                                threading.Thread(
+                                    target=self._auto_send_file_chunks, 
+                                    args=(file_id,), 
+                                    daemon=True
+                                ).start()
+                    except Exception as e:
+                        if self.verbose:
+                            display_manager.log_warning(f"Error checking ACK for file offer: {e}")
+                    
+                    del self.pending_acks[msg_id]
+                    return
+                elif self.verbose:
+                    display_manager.log_debug(f"Received ACK for unknown message {msg_id}")
+        
+        # If MESSAGE_ID didn't match, try to match by FILEID for file-related ACKs
+        # The ACK might be using FILEID instead of MESSAGE_ID
+        file_id_in_ack = msg_id  # The "MESSAGE_ID" field might actually contain a FILEID
+        
+        # Check if this looks like a file ID and we have a matching file transfer
+        if file_id_in_ack and file_id_in_ack in self.file_transfers:
             if self.verbose:
-                display_manager.log_warning("Received ACK without MESSAGE_ID")
+                display_manager.log_debug(f"ACK matched file transfer by FILEID: {file_id_in_ack}")
+            
+            # This is likely an ACK for a file offer using FILEID
+            if status in ["ACCEPTED", "RECEIVED"]:
+                if self.verbose:
+                    display_manager.log_debug(f"File {file_id_in_ack} was accepted, starting automatic file transfer")
+                
+                # Start sending chunks in a separate thread
+                threading.Thread(
+                    target=self._auto_send_file_chunks, 
+                    args=(file_id_in_ack,), 
+                    daemon=True
+                ).start()
+            elif self.verbose:
+                display_manager.log_debug(f"File {file_id_in_ack} ACK status: {status}")
             return
         
-        with self.ack_lock:
-            if msg_id in self.pending_acks:
+        # Check pending file offers for FILEID match
+        if file_id_in_ack and file_id_in_ack in self.pending_file_offers:
+            offer_info = self.pending_file_offers[file_id_in_ack]
+            if status == "ACCEPTED" and offer_info["accepted"] is True:
                 if self.verbose:
-                    display_manager.log_debug(f"Received ACK for message {msg_id} with status: {status}")
+                    display_manager.log_debug(f"File offer {file_id_in_ack} confirmed accepted via ACK")
                 
-                # Check if this ACK is for a file offer
-                ack_info = self.pending_acks[msg_id]
-                message = ack_info['message']
-                
-                # Parse the original message to check if it was a file offer
-                try:
-                    parsed_original = self.message_parser.parse_message(message, ack_info['target_ip'])
-                    if parsed_original and parsed_original.message_type == MessageType.FILE_OFFER:
-                        file_id = parsed_original.fields.get("FILEID")
-                        if file_id and file_id in self.file_transfers:
-                            # The ACK means the recipient is ready to receive the file
-                            if self.verbose:
-                                display_manager.log_debug(f"File offer {file_id} was ACKed, starting automatic file transfer")
-                            
-                            # Start sending chunks in a separate thread to avoid blocking
-                            threading.Thread(
-                                target=self._auto_send_file_chunks, 
-                                args=(file_id,), 
-                                daemon=True
-                            ).start()
-                except Exception as e:
-                    if self.verbose:
-                        display_manager.log_warning(f"Error checking ACK for file offer: {e}")
-                
-                del self.pending_acks[msg_id]
-            elif self.verbose:
-                display_manager.log_debug(f"Received ACK for unknown message {msg_id}")
+                # Start file transfer if we have the file ready
+                if file_id_in_ack in self.file_transfers:
+                    threading.Thread(
+                        target=self._auto_send_file_chunks, 
+                        args=(file_id_in_ack,), 
+                        daemon=True
+                    ).start()
+            return
+        
+        if self.verbose:
+            display_manager.log_debug(f"Could not match ACK to any pending message or file transfer")
+
+    # Fix for _handle_file_offer_message method
+        """Handle FILE_OFFER messages with automatic acceptance/rejection"""
+        sender_id = parsed_message.fields.get("FROM")
+        file_id = parsed_message.fields.get("FILEID")
+        filename = parsed_message.fields.get("FILENAME")
+        filesize = parsed_message.fields.get("FILESIZE")
+        filetype = parsed_message.fields.get("FILETYPE")
+        description = parsed_message.fields.get("DESCRIPTION", "")
+        message_id = parsed_message.fields.get("MESSAGE_ID")  # Store this!
+        
+        # Validate sender
+        if not self._validate_user_id_and_ip(sender_id, parsed_message.sender_ip):
+            return
+        
+        # Store pending file offer WITH message_id
+        self.pending_file_offers[file_id] = {
+            "sender": sender_id,
+            "filename": filename,
+            "filesize": int(filesize),
+            "filetype": filetype,
+            "description": description,
+            "timestamp": time.time(),
+            "accepted": None,  # None = pending, True = accepted, False = rejected
+            "message_id": message_id  # Add this line!
+        }
+        
+        # Update peer info
+        sender_username = sender_id.split('@')[0]
+        self._update_peer_info(sender_id, sender_username, parsed_message.sender_ip)
+        self._log_ip(parsed_message.sender_ip)
+        
+        if self.verbose:
+            display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
 
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
@@ -1262,14 +1340,16 @@ class LSNPPeer:
             "start_time": time.time()
         }
         
-        # Send ACK using FILEID (since FILE_OFFER messages don't have MESSAGE_ID)
+        # Send ACK using FILEID in the MESSAGE_ID field
+        # This is a workaround since file messages don't have MESSAGE_ID
         sender_id = offer_info["sender"]
         ack = self.message_builder.build_ack(file_id, "ACCEPTED")
         self.send_message_to_peer(sender_id, ack)
         
         print(f"File {file_id} accepted. ACK sent to {sender_id}.")
         if self.verbose:
-            display_manager.log_debug(f"File {file_id} accepted, ACK sent to trigger transfer")
+            display_manager.log_debug(f"File {file_id} accepted, ACK sent with FILEID to trigger transfer")
+
 
     def reject_file(self, file_id):
         """Reject a pending file offer"""
