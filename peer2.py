@@ -310,6 +310,9 @@ class LSNPPeer:
 
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
+
+        # Send revocation list
+        self._send_revocation_list_to_peer(user_id)
     
     def _handle_ping_message(self, parsed_message):
         """Handle PING messages for peer discovery"""
@@ -324,6 +327,9 @@ class LSNPPeer:
 
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
+
+        # Send revocation list
+        self._send_revocation_list_to_peer(user_id)
     
     def _handle_dm_message(self, parsed_message):
         sender_id = (parsed_message.fields.get("FROM"))
@@ -469,6 +475,14 @@ class LSNPPeer:
     def _handle_revoke_message(self, parsed_message):
         """Accept a REVOKE message"""
         token = parsed_message.fields.get("TOKEN")
+
+        if isinstance(token, list):
+            for t in token:
+                if t not in self.revoked_tokens_others:
+                    self.revoked_tokens_others.append(t)
+
+            print(self.revoked_tokens_others)
+            return  # No printing, silent update
 
          # check if token is already revoked
         if token in self.revoked_tokens_others:
@@ -741,6 +755,14 @@ class LSNPPeer:
 
         if self.verbose:
             display_manager.log_debug(f"Known peers updated with the members of '{group_name}' ({group_id})")
+
+    # happens backend; just syncs all of the revoked tokens
+    def _send_revocation_list_to_peer(self, peer_id):
+        now = time.time()
+        TTL = 3600  # example TTL
+            
+        msg = self.message_builder.build_revoke(self.revoked_tokens_self )
+        self.send_message_to_peer(peer_id, msg)
 
     # ====== MESSAGE SENDING ======
     def send_message_to_peer(self, user_id, message):
