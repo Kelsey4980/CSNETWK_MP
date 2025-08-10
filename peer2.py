@@ -513,7 +513,7 @@ class LSNPPeer:
             display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
 
     def _handle_file_chunk_message(self, parsed_message):
-        """Handle FILE_CHUNK messages - FIXED VERSION"""
+        """Handle FILE_CHUNK messages"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
         chunk_index_str = parsed_message.fields.get("CHUNK_INDEX")
@@ -521,60 +521,42 @@ class LSNPPeer:
         chunk_size_str = parsed_message.fields.get("CHUNK_SIZE")
         data = parsed_message.fields.get("DATA")
         
-        print(f"DEBUG RECV: Received chunk message")
-        print(f"DEBUG RECV: FROM={sender_id}")
-        print(f"DEBUG RECV: FILEID={file_id}")
-        print(f"DEBUG RECV: CHUNK_INDEX={chunk_index_str}")
-        print(f"DEBUG RECV: TOTAL_CHUNKS={total_chunks_str}")
-        print(f"DEBUG RECV: CHUNK_SIZE={chunk_size_str}")
-        print(f"DEBUG RECV: DATA present={data is not None}")
-        print(f"DEBUG RECV: DATA length={len(data) if data else 0}")
-        
-        if data:
-            print(f"DEBUG RECV: DATA start: {data[:30]}")
-            
-            # Test decode the data immediately
-            try:
-                decoded_test = base64.b64decode(data)
-                print(f"DEBUG RECV: Decoded length: {len(decoded_test)}")
-                print(f"DEBUG RECV: Decoded content: {repr(decoded_test[:30])}")
-            except Exception as e:
-                print(f"DEBUG RECV: ERROR decoding data: {e}")
-                return
+        if not all([sender_id, file_id, chunk_index_str, total_chunks_str, chunk_size_str, data]):
+            if self.verbose:
+                display_manager.log_warning(f"Invalid file chunk message from {sender_id}")
+            return
         
         # Convert strings to integers
         try:
             chunk_index = int(chunk_index_str)
             total_chunks = int(total_chunks_str) 
             chunk_size = int(chunk_size_str)
-        except (ValueError, TypeError) as e:
-            print(f"DEBUG RECV: ERROR converting numbers: {e}")
+        except (ValueError, TypeError):
+            if self.verbose:
+                display_manager.log_warning(f"Invalid chunk parameters from {sender_id}")
             return
         
-        # FIXED: Check file acceptance logic and create transfer info on first chunk
+        # Check file acceptance logic and create transfer info on first chunk
         if file_id in self.pending_file_offers:
             offer_info = self.pending_file_offers[file_id]
-            print(f"DEBUG RECV: File offer status: {offer_info.get('accepted')}")
             
             if offer_info["accepted"] is False:
-                print(f"DEBUG RECV: File was rejected, ignoring chunk")
-                return
+                return  # File was rejected, ignore chunk
             elif offer_info["accepted"] is True:
-                # FIXED: Create file transfer info here with correct total_chunks from the actual chunk message
+                # Create file transfer info here with correct total_chunks from the actual chunk message
                 if file_id not in self.file_transfers:
-                    print(f"DEBUG RECV: Creating file transfer info on first chunk")
                     self.file_transfers[file_id] = {
                         "sender": sender_id,
                         "filename": offer_info["filename"],
                         "filesize": offer_info["filesize"],
                         "filetype": offer_info["filetype"],
-                        "total_chunks": total_chunks,  # FIXED: Use actual total_chunks from chunk message
+                        "total_chunks": total_chunks,
                         "received_chunks": 0,
                         "start_time": time.time()
                     }
                     self.file_chunks[file_id] = {}
             else:
-                print(f"DEBUG RECV: Auto-accepting file on first chunk")
+                # Auto-accept file on first chunk
                 offer_info["accepted"] = True
                 
                 # Create transfer info with correct total_chunks
@@ -583,7 +565,7 @@ class LSNPPeer:
                     "filename": offer_info["filename"],
                     "filesize": offer_info["filesize"],
                     "filetype": offer_info["filetype"],
-                    "total_chunks": total_chunks,  # FIXED: Use actual total_chunks
+                    "total_chunks": total_chunks,
                     "received_chunks": 0,
                     "start_time": time.time()
                 }
@@ -591,33 +573,32 @@ class LSNPPeer:
                 
                 ack = self.message_builder.build_ack(file_id, "ACCEPTED")
                 self.send_message_to_peer(sender_id, ack)
-                print(f"DEBUG RECV: Sent acceptance ACK")
+                
+                if self.verbose:
+                    display_manager.log_debug(f"Auto-accepted file {file_id} and sent ACK")
         
         elif file_id not in self.file_transfers:
-            print(f"DEBUG RECV: ERROR - unknown file transfer: {file_id}")
-            print(f"DEBUG RECV: Known transfers: {list(self.file_transfers.keys())}")
-            print(f"DEBUG RECV: Known offers: {list(self.pending_file_offers.keys())}")
+            if self.verbose:
+                display_manager.log_warning(f"Unknown file transfer: {file_id}")
             return
         
         # Store chunk
         if file_id not in self.file_chunks:
             self.file_chunks[file_id] = {}
-            print(f"DEBUG RECV: Created new chunks dict for {file_id}")
         
         # Store the chunk
         self.file_chunks[file_id][chunk_index] = data
         self.file_transfers[file_id]["received_chunks"] = len(self.file_chunks[file_id])
         
-        print(f"DEBUG RECV: Stored chunk {chunk_index}")
-        print(f"DEBUG RECV: Total chunks stored: {len(self.file_chunks[file_id])}")
-        print(f"DEBUG RECV: Expected total chunks: {self.file_transfers[file_id]['total_chunks']}")
+        if self.verbose:
+            display_manager.log_debug(f"Received chunk {chunk_index+1}/{total_chunks} for {file_id}")
         
-        # FIXED: Check if all chunks received
+        # Check if all chunks received
         if len(self.file_chunks[file_id]) == self.file_transfers[file_id]["total_chunks"]:
-            print(f"DEBUG RECV: All chunks received, completing transfer")
+            if self.verbose:
+                display_manager.log_debug(f"All chunks received for {file_id}, completing transfer")
             self._complete_file_transfer(file_id)
-        else:
-            print(f"DEBUG RECV: Still waiting for more chunks ({len(self.file_chunks[file_id])}/{self.file_transfers[file_id]['total_chunks']})")
+
 
     def _handle_file_received_message(self, parsed_message):
         """Handle FILE_RECEIVED messages"""
@@ -1288,21 +1269,14 @@ class LSNPPeer:
 
     # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
     def _complete_file_transfer(self, file_id):
-        """Complete file transfer - FIXED VERSION"""
-        print(f"DEBUG COMPLETE: Starting completion for {file_id}")
-        
+        """Complete file transfer"""
         if file_id not in self.file_transfers or file_id not in self.file_chunks:
-            print(f"DEBUG COMPLETE: ERROR - missing transfer info")
-            print(f"DEBUG COMPLETE: In transfers: {file_id in self.file_transfers}")
-            print(f"DEBUG COMPLETE: In chunks: {file_id in self.file_chunks}")
+            if self.verbose:
+                display_manager.log_warning(f"Cannot complete transfer - missing data for {file_id}")
             return
             
         transfer_info = self.file_transfers[file_id]
         chunks = self.file_chunks[file_id]
-        
-        print(f"DEBUG COMPLETE: Transfer info: {transfer_info}")
-        print(f"DEBUG COMPLETE: Chunks available: {sorted(chunks.keys())}")
-        print(f"DEBUG COMPLETE: Expected chunks: {transfer_info['total_chunks']}")
         
         # Check for missing chunks
         missing_chunks = []
@@ -1311,37 +1285,26 @@ class LSNPPeer:
                 missing_chunks.append(i)
         
         if missing_chunks:
-            print(f"DEBUG COMPLETE: ERROR - missing chunks: {missing_chunks}")
+            if self.verbose:
+                display_manager.log_warning(f"Missing chunks for {file_id}: {missing_chunks}")
             return
         
         # Reassemble file in correct order
         file_data = b""
-        total_decoded_bytes = 0
         
         for i in range(transfer_info["total_chunks"]):
             try:
                 chunk_b64 = chunks[i]
-                print(f"DEBUG COMPLETE: Processing chunk {i}, b64 length: {len(chunk_b64)}")
-                
                 chunk_data = base64.b64decode(chunk_b64)
-                print(f"DEBUG COMPLETE: Chunk {i} decoded to {len(chunk_data)} bytes")
-                
                 file_data += chunk_data
-                total_decoded_bytes += len(chunk_data)
-                
             except Exception as e:
-                print(f"DEBUG COMPLETE: ERROR decoding chunk {i}: {e}")
+                if self.verbose:
+                    display_manager.log_warning(f"Error decoding chunk {i} for {file_id}: {e}")
                 return
-        
-        print(f"DEBUG COMPLETE: Total assembled: {len(file_data)} bytes")
-        print(f"DEBUG COMPLETE: Expected size: {transfer_info['filesize']} bytes")
-        print(f"DEBUG COMPLETE: Final content: {repr(file_data[:50])}")
         
         # Save file
         filename = transfer_info["filename"]
         save_path = self._get_save_path(filename)
-        
-        print(f"DEBUG COMPLETE: Saving to: {save_path}")
         
         try:
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -1350,7 +1313,6 @@ class LSNPPeer:
                 f.write(file_data)
             
             saved_size = os.path.getsize(save_path)
-            print(f"DEBUG COMPLETE: File saved, size on disk: {saved_size}")
             
             print(f"File received: {filename}")
             print(f"  Saved to: {save_path}")
@@ -1361,10 +1323,10 @@ class LSNPPeer:
             msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
             self.send_message_to_peer(sender_id, msg)
             
+            display_manager.log_debug(f"File transfer of {filename} is complete.")
+            
         except Exception as e:
-            print(f"DEBUG COMPLETE: ERROR saving file: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Error saving file {filename}: {e}")
             return
         
         # Clean up
@@ -1374,8 +1336,6 @@ class LSNPPeer:
             del self.file_chunks[file_id]
         if file_id in self.pending_file_offers:
             del self.pending_file_offers[file_id]
-        
-        print(f"DEBUG COMPLETE: Transfer completed and cleaned up")
 
     def _make_safe_filename(self, filename):
         """Make filename safe for saving"""
@@ -1559,7 +1519,7 @@ class LSNPPeer:
             print(f"Error listing files directory: {e}")
     
     def _auto_send_file_chunks(self, file_id, chunk_size=1024):
-        """Automatically send file chunks after offer acceptance - DEBUG VERSION"""
+        """Automatically send file chunks after offer acceptance"""
         if file_id not in self.file_transfers:
             if self.verbose:
                 display_manager.log_warning(f"Cannot auto-send chunks for unknown file transfer: {file_id}")
@@ -1569,9 +1529,8 @@ class LSNPPeer:
         filepath = transfer_info["filepath"]
         target_user_id = transfer_info["target_user"]
         
-        print(f"DEBUG SEND: Starting file transfer for {file_id}")
-        print(f"DEBUG SEND: File path: {filepath}")
-        print(f"DEBUG SEND: Target user: {target_user_id}")
+        if self.verbose:
+            display_manager.log_debug(f"Starting file transfer for {file_id}")
         
         # Small delay to ensure the recipient is ready
         time.sleep(0.5)
@@ -1579,18 +1538,14 @@ class LSNPPeer:
         try:
             # Check if file exists and is readable
             if not os.path.exists(filepath):
-                print(f"ERROR: File not found: {filepath}")
+                print(f"Error: File not found: {filepath}")
                 return
             
             with open(filepath, 'rb') as f:
                 file_data = f.read()
             
-            print(f"DEBUG SEND: Read {len(file_data)} bytes from file")
-            print(f"DEBUG SEND: First 50 bytes as text: {repr(file_data[:50])}")
-            print(f"DEBUG SEND: First 20 bytes as hex: {' '.join(f'{b:02x}' for b in file_data[:20])}")
-            
             if len(file_data) == 0:
-                print(f"ERROR: File {filepath} is empty!")
+                print(f"Error: File {filepath} is empty!")
                 return
             
             # Split into chunks
@@ -1598,35 +1553,21 @@ class LSNPPeer:
             for i in range(0, len(file_data), chunk_size):
                 chunk_bytes = file_data[i:i + chunk_size]
                 chunks.append(chunk_bytes)
-                print(f"DEBUG SEND: Chunk {i//chunk_size}: {len(chunk_bytes)} bytes")
             
             total_chunks = len(chunks)
             successful_chunks = 0
             
-            print(f"DEBUG SEND: Total chunks to send: {total_chunks}")
+            if self.verbose:
+                display_manager.log_debug(f"Sending {total_chunks} chunks for {transfer_info['filename']}")
             
             # Send each chunk
             for i, chunk_bytes in enumerate(chunks):
-                print(f"DEBUG SEND: Processing chunk {i}")
-                print(f"DEBUG SEND: Chunk {i} raw bytes: {len(chunk_bytes)}")
-                print(f"DEBUG SEND: Chunk {i} content: {repr(chunk_bytes[:30])}")
-                
                 # Encode chunk as base64 for transmission
                 encoded_chunk = base64.b64encode(chunk_bytes).decode('utf-8')
-                print(f"DEBUG SEND: Chunk {i} base64 length: {len(encoded_chunk)}")
-                print(f"DEBUG SEND: Chunk {i} base64 start: {encoded_chunk[:30]}")
-                
-                # Test decode to verify encoding worked
-                test_decode = base64.b64decode(encoded_chunk)
-                print(f"DEBUG SEND: Test decode length: {len(test_decode)}")
-                print(f"DEBUG SEND: Test decode matches: {test_decode == chunk_bytes}")
                 
                 msg = self.message_builder.build_file_chunk(
                     target_user_id, file_id, i, total_chunks, len(chunk_bytes), encoded_chunk
                 )
-                
-                print(f"DEBUG SEND: Message length: {len(msg)}")
-                print(f"DEBUG SEND: Message preview: {msg[:200]}...")
                 
                 try:
                     target_ip = self._find_peer_ip(target_user_id)
@@ -1635,16 +1576,15 @@ class LSNPPeer:
                         successful_chunks += 1
                         self.stats['messages_sent'] += 1
                         
-                        print(f"DEBUG SEND: Successfully sent chunk {i + 1}/{total_chunks}")
-                        time.sleep(0.2)  # Slightly longer delay for debugging
+                        if self.verbose:
+                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks}")
+                        time.sleep(0.2)  # Delay between chunks
                     else:
-                        print(f"ERROR: Cannot find IP for user {target_user_id}")
+                        print(f"Error: Cannot find IP for user {target_user_id}")
                         break
                 except Exception as e:
-                    print(f"ERROR: Failed to send chunk {i + 1}/{total_chunks}: {e}")
+                    print(f"Error: Failed to send chunk {i + 1}/{total_chunks}: {e}")
                     break
-            
-            print(f"DEBUG SEND: Sent {successful_chunks}/{total_chunks} chunks")
             
             if successful_chunks == total_chunks:
                 print(f"File transfer completed: {transfer_info['filename']} ({total_chunks} chunks sent)")
@@ -1653,10 +1593,7 @@ class LSNPPeer:
                 print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully")
                 
         except Exception as e:
-            print(f"ERROR in file transfer: {e}")
-            import traceback
-            traceback.print_exc()
-
+            print(f"Error in file transfer: {e}")
     
     # ====== ACK TIMEOUT & RETRY ======
     def _ack_timeout_checker(self):
