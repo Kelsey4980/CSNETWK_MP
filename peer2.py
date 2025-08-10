@@ -1211,10 +1211,7 @@ class LSNPPeer:
         
         # Send with ACK tracking - chunks will be sent automatically when ACK is received
         if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
-            print(f"File offer sent to {target_user_id}: {filename}")
-            print(f"  Source: {resolved_path}")
-            print(f"  File ID: {file_id}")
-            print("File will be sent automatically once accepted.")
+            print(f"File offer sent to {target_user_id}: {filename} ({file_id})")
         else:
             # Clean up on send failure
             if file_id in self.file_transfers:
@@ -1313,17 +1310,13 @@ class LSNPPeer:
                 f.write(file_data)
             
             saved_size = os.path.getsize(save_path)
-            
-            print(f"File received: {filename}")
-            print(f"  Saved to: {save_path}")
-            print(f"  Size: {saved_size} bytes")
-            
+
             # Send confirmation
             sender_id = transfer_info["sender"]
             msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
             self.send_message_to_peer(sender_id, msg)
             
-            display_manager.log_debug(f"File transfer of {filename} is complete.")
+            print(f"File transfer of {filename} is complete.")
             
         except Exception as e:
             print(f"Error saving file {filename}: {e}")
@@ -1373,20 +1366,17 @@ class LSNPPeer:
         
         # Mark as accepted
         offer_info["accepted"] = True
-        print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
-        
-        # FIXED: Don't create file_transfers entry here - let it be created when first chunk arrives
-        # This prevents the total_chunks=0 issue
-        
+
+        if self.verbose:
+            print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
+
         # Send ACK using FILEID in the MESSAGE_ID field
         sender_id = offer_info["sender"]
         ack = self.message_builder.build_ack(file_id, "ACCEPTED")
         self.send_message_to_peer(sender_id, ack)
         
-        print(f"File {file_id} accepted. ACK sent to {sender_id}.")
         if self.verbose:
-            display_manager.log_debug(f"File {file_id} accepted, ACK sent with FILEID to trigger transfer")
-
+            print(f"ACK sent to {sender_id} to trigger file transfer.")
 
     def reject_file(self, file_id):
         """Reject a pending file offer"""
@@ -1587,7 +1577,7 @@ class LSNPPeer:
                     break
             
             if successful_chunks == total_chunks:
-                print(f"File transfer completed: {transfer_info['filename']} ({total_chunks} chunks sent)")
+                print(f"File transfer of {transfer_info['filename']} completed.")
                 transfer_info["status"] = "sent"
             else:
                 print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully")
@@ -1812,7 +1802,7 @@ class LSNPPeer:
             if len(parts) > 1:
                 file_id = parts[1]
                 self.accept_file(file_id)
-                print(f"File {file_id} accepted. Transfer will begin automatically.")
+                print(f"File {file_id} accepted.")
             else:
                 print("Usage: accept_file <file_id>")
 
