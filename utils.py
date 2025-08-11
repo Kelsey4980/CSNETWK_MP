@@ -14,7 +14,8 @@ class DisplayManager:
     
     def print_startup_complete(self):
         """Print startup completion message"""
-        print("Peer started successfully.\nType 'help' for available commands.")
+        print("Peer started successfully.\nType 'help' for available commands.\n")
+        print("------------\n")
     
     def log_received_message(self, ip_address: str):
         """Log received message"""

@@ -488,7 +488,17 @@ class LSNPPeer:
     def _handle_group_update(self, parsed_message):
         """Accept a GROUP_UPDATE message"""
         members_to_add = parsed_message.fields.get("ADD")
+        if members_to_add:
+            members_to_add = [m.strip() for m in members_to_add.split(",") if m.strip()]
+        else:
+            members_to_add = []
+
         members_to_remove = parsed_message.fields.get("REMOVE")
+        if members_to_remove:
+            members_to_remove = [m.strip() for m in members_to_remove.split(",") if m.strip()]
+        else:
+            members_to_remove = []
+
         group_id = parsed_message.fields.get("GROUP_ID")
         group_creator = parsed_message.fields.get("FROM") # assumes that the sender is also the creator
 
@@ -496,10 +506,23 @@ class LSNPPeer:
 
         if group_key in self.groups:
             self._update_group(group_key, members_to_add, members_to_remove)
-            group_name = self.groups[group_key]["name"]
 
+            if self.user_id in members_to_remove:
+                del self.groups[group_key]
+
+            group_name = self.groups[group_key]["name"]
             if self.verbose:
                 display_manager.log_debug(f"'{group_name}' ({group_id}) updated its members")
+
+        elif self.user_id in members_to_add:
+                self.groups[group_key] = {
+                    "id": group_id,
+                    "name": "",
+                    "members": [],
+                    "creator": group_creator
+                }
+                # self.handle_add_to_group(group_key, group_creator)
+
         else:
             if self.verbose:
                 display_manager.log_warning(f"You received a GROUP_UPDATE from {group_creator} to a group ({group_id}) you are not in")
@@ -879,18 +902,21 @@ class LSNPPeer:
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
         group = self.groups.get(group_key)
-        current_members = set(group["members"])
         if not group:
             print(f"Group '{group_key}' not found.")
             return
+        current_members = set(group["members"])
 
         # add
-        for member in members_to_add:
-            if member and member not in current_members:
-                current_members.add(member)
+        if members_to_add:
+            for member in members_to_add:
+                if member and member not in current_members:
+                    current_members.add(member)
+                
         # remove
-        for member in members_to_remove:
-            current_members.discard(member)
+        if members_to_remove:
+            for member in members_to_remove:
+                current_members.discard(member)
 
         # update
         self.groups[group_key]["members"] = list(current_members)
@@ -1289,8 +1315,8 @@ class LSNPPeer:
     # TODO: Check if correct
     def send_group_update(self, group_key, add_members, remove_members):
         current_time = time.time()
-        members_to_add = add_members.split(",")
-        members_to_remove = remove_members.split(",")
+        members_to_add = [m.strip() for m in add_members.split(",") if m.strip()] if add_members else []
+        members_to_remove = [m.strip() for m in remove_members.split(",") if m.strip()] if remove_members else []       
 
         group_id, group_creator = group_key.split("|", 1)
 
@@ -1310,9 +1336,24 @@ class LSNPPeer:
             # send to all users listed
             for user_id in target_users:
                 self.send_message_to_peer(user_id, msg)
+            # sent to new members as well
+            for user_id in members_to_add:
+                self.send_message_to_peer(user_id, msg)
 
             # update local group
             self._update_group(group_key, members_to_add, members_to_remove)
+
+            # send group_create to members to add so that they will have a copy of group_name and members
+            if members_to_add:
+                group_name = group["group_name"]
+                group_members = group["members"]
+                msg = self.message_builder.build_group_create(group_id, group_name, group_members, current_time)
+                self.save_sent_messages(msg)
+
+                print(msg)
+
+                for members in members_to_add:
+                    self.send_message_to_peer(members, msg)
 
             print(f"{group_id} updated.")
         else:
