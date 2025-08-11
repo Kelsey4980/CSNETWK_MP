@@ -263,10 +263,7 @@ class MessageParser:
 
                 pfp_data = f"AVATAR_DATA: {avatar_data} AVATAR_TYPE: {avatar_type}" if avatar_data and avatar_type else ""
 
-                if avatar_data and avatar_type:
-                    return f"{timestamp_str} DM from {display_name}{pfp_data}: {content}"
-                else:
-                    return f"{timestamp_str} DM from {display_name}: {content}"
+                return f"{timestamp_str} DM from {display_name}: {content}"
             
             elif msg_type == MessageType.PING:
                 # ping: do not display anything
