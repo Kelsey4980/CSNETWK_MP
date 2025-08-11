@@ -60,8 +60,6 @@ class TicTacToeGame:
             else:
                 print("It's a draw!\n")
             
-            print(f"Use command 'tictactoe_result' for a more detailed summary\n")
-
 
     '''
         Checks if the chosen position has been occupied 
