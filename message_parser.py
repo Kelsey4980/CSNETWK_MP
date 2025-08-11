@@ -293,7 +293,7 @@ class MessageParser:
                 f"{timestamp_str} {message.message_type.value} from IP: {message.sender_ip}"
             ]
             for key, value in message.fields.items():
-                if key != "AVATAR_DATA":
+                if key != "AVATAR_DATA" or key != "DATA":
                     output_lines.append(f"  {key}: {value}")
                 else:
                     output_lines.append(f"  {key}: {value[:10]}... (truncated)")
