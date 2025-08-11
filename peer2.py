@@ -887,7 +887,7 @@ class LSNPPeer:
                 to_remove.append(game_id)
         for game_id in to_remove:
             print(f"Game {game_id} timed out due to inactivity.")
-            self.active_games[game_id].pop(game_id, None)
+            self.active_games.pop(game_id, None)
 
     def _game_timeout_loop(self, timeout_seconds=120, interval=30):
         while self.running:
@@ -1046,7 +1046,7 @@ class LSNPPeer:
         target_user_id = game.get_p1().id if game.get_p2().id == self.user_id else game.get_p2().id
 
         # Check if the game is still ongoing
-        if not (game.check_draw() or game.check_win()[0]):
+        if not (game.check_draw() or game.check_win()[0] or game.end):
             print(f"\nGame with {target_username} is still ongoing.\n")
             return
         

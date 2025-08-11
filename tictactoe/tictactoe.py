@@ -54,12 +54,15 @@ class TicTacToeGame:
 
         print(bot_border)
 
+        print(f"\n")
+
         if self.end:
             if self.winner:
-                print(f"\n{self.winner.name} wins!\n")
-                print(f"Use command 'tictactoe_result' for a more detailed summary")
+                print(f"{self.winner.name} wins!\n")
             else:
-                print("\nIt's a draw!\n")
+                print("It's a draw!\n")
+            
+            print(f"Use command 'tictactoe_result' for a more detailed summary\n")
 
 
     '''
