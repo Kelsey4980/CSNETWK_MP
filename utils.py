@@ -74,7 +74,7 @@ class DisplayManager:
             return
 
         print("\n--- Known Peers ---")
-        for user_id, (display_name, ip, status, last_seen) in known_peers.items():
+        for user_id, (display_name, _, _, ip, status, last_seen) in known_peers.items():
             last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen))
             status_text = f": {status}" if status else ""
             print(f"{display_name} ({user_id}) @ {ip}{status_text} | Last seen: {last_seen_str}")
