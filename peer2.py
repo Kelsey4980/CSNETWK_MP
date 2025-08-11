@@ -511,6 +511,7 @@ class LSNPPeer:
                 del self.groups[group_key]
 
             group_name = self.groups[group_key]["name"]
+            self.message_parser.set_group_name(group_name)
             if self.verbose:
                 display_manager.log_debug(f"'{group_name}' ({group_id}) updated its members")
 
@@ -1358,7 +1359,7 @@ class LSNPPeer:
                 for members in members_to_add:
                     self.send_message_to_peer(members, msg)"""
 
-            print(f"{group_id} updated.")
+            print(f"\n{group_id} updated.")
         else:
             print("Group not found.")
 

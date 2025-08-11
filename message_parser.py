@@ -14,6 +14,8 @@ class ParsedMessage:
         self.fields = {}
         self.is_valid = False
         self.validation_errors = []
+
+        self.group_name = "" # for group name in group update output
     
     def get_display_name(self, peer_profiles: Dict[str, Tuple[str, str, str]]) -> str:
         """
@@ -230,7 +232,6 @@ class MessageParser:
         if not message.is_valid and self.verbose_mode:
             print(f">> [DEBUG - Parser] Message type {message.message_type.value} validation failed: {message.validation_errors}")
 
-
     def format_message_output(self, message: ParsedMessage, peer_profiles: Dict, current_verbose_mode: bool) -> str:
         """
         Format the parsed message for display based on verbose mode.
@@ -331,9 +332,7 @@ class MessageParser:
             
             elif msg_type == MessageType.GROUP_UPDATE:
                 # final: The group “Trip Buddies” member list was updated.
-                group_name = message.fields.get("GROUP_NAME")
-
-                return f"\n{timestamp_str} The group \"{group_name}\" member list was updated."
+                return f"\n{timestamp_str} The group \"{self.group_name}\" member list was updated."
             
             elif msg_type == MessageType.REVOKE:
                 # final: do not display anything (handled by verbose log in LSNPPeer)
@@ -358,3 +357,6 @@ class MessageParser:
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display
                 return ""
+            
+    def set_group_name(self, name):
+        self.group_name = name
