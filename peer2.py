@@ -957,8 +957,6 @@ class LSNPPeer:
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
         if not user_id:
-            if self.verbose:
-                display_manager.log_warning(f"Missing USER_ID from {sender_ip}")
             return False
         
         # Validate IP matches USER_ID
