@@ -199,6 +199,62 @@ class MessageParser:
             if "ADD" not in message.fields and "REMOVE" not in message.fields:
                 message.validation_errors.append("GROUP_UPDATE must include ADD and/or REMOVE")
                 message.is_valid = False
+
+        elif message.message_type == MessageType.REVOKE:
+            if not all(k in message.fields for k in ["TOKEN"]):
+                message.validation_errors.append("REVOKE message missing required fields")
+                message.is_valid = False
+        
+        elif message.message_type == MessageType.FILE_OFFER:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "DESCRIPTION", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append("FILE_OFFER message missing required fields")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.FILE_CHUNK:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILEID", "CHUNK_INDEX", "TOTAL_CHUNKS", "CHUNK_SIZE", "TOKEN", "DATA"]):
+                message.validation_errors.append("FILE_CHUNK message missing required fields")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.FILE_RECEIVED:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILEID", "STATUS", "TIMESTAMP"]):
+                message.validation_errors.append("FILE_RECEIVED message missing required fields")
+                message.is_valid = False
+            
+
+        elif message.message_type == MessageType.TICTACTOE_INVITE:
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append(f"{message.message_type.value} message missing required fields")
+                message.is_valid = False
+
+            if message.fields.get("SYMBOL") not in ["X", "O"]:
+                message.validation_errors.append(f"{message.message_type.value} symbol must be 'X' or 'O'")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.TICTACTOE_MOVE:
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "POSITION", "TURN", "TOKEN"]):
+                message.validation_errors.append(f"{message.message_type.value} message missing required fields")
+                message.is_valid = False
+
+            if message.fields.get("SYMBOL") not in ["X", "O"]:
+                message.validation_errors.append(f"{message.message_type.value} symbol must be 'X' or 'O'")
+                message.is_valid = False
+
+            if message.fields.get("POSITION") not in [str(i) for i in range(9)]:
+                message.validation_errors.append(f"{message.message_type.value} position must be a number between 0 and 8")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.TICTACTOE_RESULT:
+            if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "RESULT", "WINNING_LINE", "TIMESTAMP"]):
+                message.validation_errors.append(f"{message.message_type.value} message missing required fields")
+                message.is_valid = False
+
+            if message.fields.get("SYMBOL") not in ["X", "O"]:
+                message.validation_errors.append(f"{message.message_type.value} symbol must be 'X' or 'O'")
+                message.is_valid = False
+
+            if message.fields.get("RESULT") not in ["WIN", "LOSE", "DRAW"]:
+                message.validation_errors.append(f"{message.message_type.value} result must be 'WIN', 'LOSE', or 'DRAW'")
+                message.is_valid = False
             
         else:
             # Unknown or unsupported type
@@ -246,12 +302,11 @@ class MessageParser:
                 avatar_type = message.fields.get("AVATAR_TYPE", "")
                 content = message.fields.get("CONTENT", "")
 
-                pfp_data = f"AVATAR_DATA: {avatar_data} AVATAR_TYPE: {avatar_type}" if avatar_data and avatar_type else ""
+                timestamp = message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
+                ttl_sec = message.fields.get("TTL")
 
-                if avatar_data and avatar_type:
-                    return f"{timestamp_str} POST from {display_name}{pfp_data}: {content}"
-                else:
-                    return f"{timestamp_str} POST from {display_name}: {content}"
+                post_time = float(timestamp) - float(ttl_sec)  # subtracts ttl from post time
+                return f"{timestamp_str}|{post_time} POST from {display_name}: {content}"
             
             elif msg_type == MessageType.DM:
                 # dm: Show only the display_name (user_id if display name is not recorded) and content (and profile picture)
@@ -272,6 +327,22 @@ class MessageParser:
             elif msg_type == MessageType.ACK:
                 # ack: do not display anything (handled by verbose log in LSNPPeer)
                 return ""
+            
+            elif msg_type == MessageType.LIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} likes your post [{post_timestamp}]"
+            
+            elif msg_type == MessageType.UNLIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} unlikes your post [{post_timestamp}]"
             
             elif msg_type == MessageType.FOLLOW:
                 # final: “User alice has followed you”
@@ -305,6 +376,65 @@ class MessageParser:
                 group_name = message.fields.get("GROUP_NAME")
 
                 return f"{timestamp_str} The group \"{group_name}\" member list was updated."
+            
+            elif msg_type == MessageType.REVOKE:
+                # final: do not display anything (handled by verbose log in LSNPPeer)
+                return ""
+
+            elif msg_type == MessageType.FILE_OFFER:
+                sender_user_id = message.fields.get("FROM")
+                display_name = message.get_display_name(peer_profiles)
+                filename = message.fields.get("FILENAME", "")
+                file_id = message.fields.get("FILEID", "")
+                description = message.fields.get("DESCRIPTION", "")
+                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n        File ID: {file_id}\n        Description: {description}\n        NOTE: Use 'accept_file {file_id}' to accept or 'ignore_file {file_id}' to ignore."
+
+            elif msg_type == MessageType.FILE_CHUNK:
+                # Do not print anything until all chunks are completed
+                return ""
+
+            elif msg_type == MessageType.FILE_RECEIVED:
+                # Do not print anything
+                return ""
+            
+            elif msg_type == MessageType.TICTACTOE_INVITE:
+                # final: “User alice is inviting you to play tic-tac-toe”
+                sender_user_id = message.fields.get("FROM")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                game_id = message.fields.get("GAME_ID")
+                symbol = "X" if message.fields.get("SYMBOL") == "O" else "O"
+
+                return f"{timestamp_str} User {sender_display_name} is inviting you to play tic-tac-toe. You can accept by making a move with symbol {symbol}. Game ID: {game_id}"
+            
+            elif msg_type == MessageType.TICTACTOE_MOVE:
+                # final: “User alice played X at position 5”
+                sender_user_id = message.fields.get("FROM")
+                sender_display_name = message.get_display_name(peer_profiles)
+                symbol = message.fields.get("SYMBOL")
+                position = message.fields.get("POSITION")
+
+                return
+            
+            elif msg_type == MessageType.TICTACTOE_RESULT:
+                # final: “User alice (X) won with 0,1,2” OR “You (X) won with 0,1,2” OR "The game ended in a draw"
+                sender_user_id = message.fields.get("FROM")
+                sender_display_name = message.get_display_name(peer_profiles)
+                symbol = message.fields.get("SYMBOL")
+                current_user_symbol = "X" if symbol == "O" else "O"
+                result = message.fields.get("RESULT")
+                winning_line = message.fields.get("WINNING_LINE")
+
+                '''
+                if result == "WIN":
+                    return f"{timestamp_str} User {sender_display_name} ({symbol}) won with {winning_line}"
+                elif result == "LOSE":
+                    return f"{timestamp_str} You ({current_user_symbol}) won with {winning_line}"
+                elif result == "DRAW":
+                    return f"{timestamp_str} The game ended in a draw"
+                elif result == "FORFEIT":
+                    return f"{timestamp_str} The game was forefeited"
+                '''
             
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display

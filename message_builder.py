@@ -24,6 +24,11 @@ class MessageBuilder:
         """Generate a unique message ID"""
         return secrets.token_hex(8)
     
+    def generate_game_id(self) -> str:
+        """Generate a unique game ID"""
+        number = secrets.randbelow(256)  # Random number between 0 and 255
+        return f"g{number:03d}"
+    
     def generate_token(self, scope: str = "chat", ttl_seconds: int = None) -> str:
         """
         Generate a token for message authentication
@@ -35,26 +40,8 @@ class MessageBuilder:
         expiry = int(time.time()) + ttl_seconds
         token = f"{self.user_id}|{expiry}|{scope}"
         
-        # Cache the token
-        self.token_cache[scope] = token
-        
         print(f"[DEBUG] Generated token for {scope}: {token}, expires at {time.ctime(expiry)}")
         return token
-    
-    def get_cached_token(self, scope: str = "chat", ttl_seconds: int = None) -> Optional[str]:
-        """Get cached token if valid, otherwise generate new one"""
-        if scope in self.token_cache:
-            token = self.token_cache[scope]
-            try:
-                _, expiry_str, _ = token.split('|')
-                expiry = int(expiry_str)
-                if time.time() < expiry - 60:  # Use if more than 1 minute left
-                    print(f"[DEBUG] Using cached token for {scope}: {token}, expires at {time.ctime(expiry)}")
-                    return token
-            except (ValueError, IndexError):
-                pass
-        
-        return self.generate_token(scope, ttl_seconds)
     
     def build_profile(self, status: str = "") -> str:
         """
@@ -88,7 +75,7 @@ class MessageBuilder:
             ttl_seconds = DEFAULT_TTL
         
         message_id = self.generate_message_id()
-        token = self.get_cached_token("chat", ttl_seconds) # ttl_seconds is expiration time
+        token = self.generate_token("broadcast", ttl_seconds)
         
         message_parts = [
             f"TYPE: POST",
@@ -115,7 +102,7 @@ class MessageBuilder:
         """
 
         message_id = self.generate_message_id()
-        token = self.get_cached_token("direct")
+        token = self.generate_token("chat")
         timestamp = int(time.time())
         
         message_parts = [
@@ -143,7 +130,7 @@ class MessageBuilder:
         Format: TYPE, MESSAGE_ID, FROM, TO, TIMESTAMP, TOKEN
         """
         message_id = self.generate_message_id()
-        token = self.get_cached_token("follow")
+        token = self.generate_token("follow")
         timestamp = int(time.time())
         
         message_parts = [
@@ -164,7 +151,7 @@ class MessageBuilder:
         Format: TYPE, MESSAGE_ID, FROM, TO, TIMESTAMP, TOKEN
         """
         message_id = self.generate_message_id()
-        token = self.get_cached_token("follow")
+        token = self.generate_token("follow")
         timestamp = int(time.time())
         
         message_parts = [
@@ -184,7 +171,7 @@ class MessageBuilder:
         Build a LIKE message
         Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
         """
-        token = self.get_cached_token("chat")
+        token = self.generate_token("broadcast")
         timestamp = int(time.time())
         
         message_parts = [
@@ -205,11 +192,11 @@ class MessageBuilder:
         Build an UNLIKE message
         Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
         """
-        token = self.get_cached_token("chat")
+        token = self.generate_token("broadcast")
         timestamp = int(time.time())
 
         message_parts = [
-            f"TYPE: LIKE",
+            f"TYPE: UNLIKE",
             f"FROM: {self.user_id}",
             f"TO: {to_user_id}",
             f"POST_TIMESTAMP: {post_timestamp}",
@@ -253,7 +240,7 @@ class MessageBuilder:
         Build a GROUP_CREATE message
         Format: TYPE, FROM, GROUP_ID, GROUP_NAME, MEMBERS, TIMESTAMP, TOKEN
         """
-        token = self.get_cached_token("group")
+        token = self.generate_token("group")
         message_parts = [
             f"TYPE: GROUP_CREATE",
             f"FROM: {self.user_id}",
@@ -272,7 +259,7 @@ class MessageBuilder:
         Build a GROUP_MESSAGE message
         Format: TYPE, FROM, GROUP_ID, CONTENT, TIMESTAMP, TOKEN
         """
-        token = self.get_cached_token("group")
+        token = self.generate_token("group")
         message_parts = [
             f"TYPE: GROUP_MESSAGE",
             f"FROM: {self.user_id}",
@@ -287,14 +274,14 @@ class MessageBuilder:
     
     def build_group_update(self, group_id, add_members, remove_members, timestamp):
         """
-        Build a GROUP_MESSAGE message
+        Build a GROUP_UPDATE message
         Format: TYPE, FROM, GROUP_ID, ADD, REMOVE, TOKEN
         """
-        token = self.get_cached_token("group")
+        token = self.generate_token("group")
 
         if add_members and remove_members:
             message_parts = [
-                f"TYPE: GROUP_MESSAGE",
+                f"TYPE: GROUP_UPDATE",
                 f"FROM: {self.user_id}",
                 f"GROUP_ID: {group_id}",
                 f"ADD: {add_members}",
@@ -305,7 +292,7 @@ class MessageBuilder:
             ]
         elif add_members:
             message_parts = [
-                f"TYPE: GROUP_MESSAGE",
+                f"TYPE: GROUP_UPDATE",
                 f"FROM: {self.user_id}",
                 f"GROUP_ID: {group_id}",
                 f"ADD: {add_members}",
@@ -315,7 +302,7 @@ class MessageBuilder:
             ]
         elif remove_members:
             message_parts = [
-                f"TYPE: GROUP_MESSAGE",
+                f"TYPE: GROUP_UPDATE",
                 f"FROM: {self.user_id}",
                 f"GROUP_ID: {group_id}",
                 f"REMOVE: {remove_members}",
@@ -323,6 +310,158 @@ class MessageBuilder:
                 f"TOKEN: {token}",
                 ""
             ]
+        
+        return "\n".join(message_parts)
+    
+    def build_revoke(self, token):
+        """
+        Build a REVOKE message
+        Format: TYPE, TOKEN
+        """
+
+        message_parts = [
+            f"TYPE: REVOKE",
+            f"TOKEN: {token}",
+            ""
+        ]
+
+        return "\n".join(message_parts)
+    
+    def build_file_offer(self, to_user_id: str, filename: str, filesize: int, filetype: str, description: str = "") -> str:
+        """
+        Build a FILE_OFFER message
+        Format: TYPE, FROM, TO, FILENAME, FILESIZE, FILETYPE, FILEID, DESCRIPTION, TIMESTAMP, TOKEN
+        """
+        message_id = self.generate_message_id()
+        file_id = self.generate_message_id()  # Use same generation for file ID
+        token = self.generate_token("file")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: FILE_OFFER",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"FILENAME: {filename}",
+            f"FILESIZE: {filesize}",
+            f"FILETYPE: {filetype}",
+            f"FILEID: {file_id}",
+            f"DESCRIPTION: {description}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+
+    def build_file_chunk(self, to_user_id: str, file_id: str, chunk_index: int, total_chunks: int, chunk_size: int, data: str) -> str:
+        """
+        Build a FILE_CHUNK message
+        Format: TYPE, FROM, TO, FILEID, CHUNK_INDEX, TOTAL_CHUNKS, CHUNK_SIZE, TOKEN, DATA
+        """
+        token = self.generate_token("file")
+        
+        message_parts = [
+            f"TYPE: FILE_CHUNK",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"FILEID: {file_id}",
+            f"CHUNK_INDEX: {chunk_index}",
+            f"TOTAL_CHUNKS: {total_chunks}",
+            f"CHUNK_SIZE: {chunk_size}",
+            f"TOKEN: {token}",
+            f"DATA: {data}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+
+    def build_file_received(self, to_user_id: str, file_id: str, status: str = "COMPLETE") -> str:
+        """
+        Build a FILE_RECEIVED message
+        Format: TYPE, FROM, TO, FILEID, STATUS, TIMESTAMP
+        """
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: FILE_RECEIVED",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"FILEID: {file_id}",
+            f"STATUS: {status}",
+            f"TIMESTAMP: {timestamp}",
+            ""
+        ]            
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_invite(self, to_user_id: str, symbol: str) -> str:
+        """
+        Build a TICTACTOE_INVITE message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, SYMBOL, TIMESTAMP, TOKEN
+        """
+        game_id = self.generate_game_id()
+        message_id = self.generate_message_id()
+        token = self.generate_token("game")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_INVITE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"SYMBOL: {symbol}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_move(self, to_user_id: str, game_id: str, symbol: str, position: str, turn: str) -> str:
+        """
+        Build a TICTACTOE_MOVE message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, POSITION, SYMBOL, TURN, TOKEN
+        """
+        message_id = self.generate_message_id()
+        token = self.generate_token("game")
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_MOVE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"POSITION: {position}",
+            f"SYMBOL: {symbol}",
+            f"TURN: {turn}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_result(self, to_user_id: str, game_id: str, symbol: str, result: str, winning_line: str) -> str:
+        """
+        Build a TICTACTOE_RESULT message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, RESULT, SYMBOL, WINNING_LINE, TIMESTAMP
+        """
+        message_id = self.generate_message_id()
+        token = self.generate_token("game")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_RESULT",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"RESULT: {result}",
+            f"SYMBOL: {symbol}",
+            f"WINNING_LINE: {winning_line}",
+            f"TIMESTAMP: {timestamp}",
+            ""
+        ]
         
         return "\n".join(message_parts)
     
@@ -372,31 +511,3 @@ class MessageBuilder:
             self.user_id = user_id
         if display_name:
             self.display_name = display_name
-        
-        # Clear token cache when user info changes
-        self.token_cache.clear()
-    
-    def clear_token_cache(self):
-        """Clear all cached tokens"""
-        self.token_cache.clear()
-    
-    def get_token_info(self, scope: str = "chat") -> Dict[str, Any]:
-        """Get information about a cached token"""
-        if scope not in self.token_cache:
-            return {"exists": False}
-        
-        token = self.token_cache[scope]
-        try:
-            user_id, expiry_str, token_scope = token.split('|')
-            expiry = int(expiry_str)
-            
-            return {
-                "exists": True,
-                "user_id": user_id,
-                "expiry": expiry,
-                "scope": token_scope,
-                "expires_in": expiry - int(time.time()),
-                "is_valid": time.time() < expiry
-            }
-        except (ValueError, IndexError):
-            return {"exists": True, "valid": False, "error": "Invalid token format"}

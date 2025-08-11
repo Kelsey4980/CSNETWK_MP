@@ -22,3 +22,37 @@ class MessageType(Enum):
     PING = "PING"
     REVOKE = "REVOKE"
     UNKNOWN = "UNKNOWN"
+
+class MessageScope(Enum):
+    """Enumeration of LSNP token scopes"""
+    CHAT = "chat"            # For DM
+    FILE = "file"            # For FILE_OFFER, FILE_CHUNK
+    BROADCAST = "broadcast"  # For POST, LIKE, UNLIKE
+    FOLLOW = "follow"        # For FOLLOW, UNFOLLOW
+    GAME = "game"            # For TICTACTOE_*
+    GROUP = "group"          # For GROUP_*
+
+
+MESSAGE_TYPE_TO_SCOPE = {
+    MessageType.DM: MessageScope.CHAT,
+    # MessageType.REVOKE: MessageScope.CHAT,
+
+    MessageType.FILE_OFFER: MessageScope.FILE,
+    MessageType.FILE_CHUNK: MessageScope.FILE,
+    MessageType.FILE_RECEIVED: MessageScope.FILE,
+
+    MessageType.POST: MessageScope.BROADCAST,
+    MessageType.LIKE: MessageScope.BROADCAST,
+    MessageType.UNLIKE: MessageScope.BROADCAST,
+
+    MessageType.FOLLOW: MessageScope.FOLLOW,
+    MessageType.UNFOLLOW: MessageScope.FOLLOW,
+
+    MessageType.TICTACTOE_INVITE: MessageScope.GAME,
+    MessageType.TICTACTOE_MOVE: MessageScope.GAME,
+    MessageType.TICTACTOE_RESULT: MessageScope.GAME,
+
+    MessageType.GROUP_CREATE: MessageScope.GROUP,
+    MessageType.GROUP_UPDATE: MessageScope.GROUP,
+    MessageType.GROUP_MESSAGE: MessageScope.GROUP,
+}
