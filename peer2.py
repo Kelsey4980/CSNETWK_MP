@@ -295,6 +295,9 @@ class LSNPPeer:
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, _, _, _ = self.known_peers[sender_id]
 
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
         # Update peer info
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
