@@ -200,6 +200,27 @@ class MessageParser:
                 message.validation_errors.append("GROUP_UPDATE must include ADD and/or REMOVE")
                 message.is_valid = False
 
+        elif message.message_type == MessageType.REVOKE:
+            if not all(k in message.fields for k in ["TOKEN"]):
+                message.validation_errors.append("REVOKE message missing required fields")
+                message.is_valid = False
+        
+        elif message.message_type == MessageType.FILE_OFFER:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "DESCRIPTION", "TIMESTAMP", "TOKEN"]):
+                message.validation_errors.append("FILE_OFFER message missing required fields")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.FILE_CHUNK:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILEID", "CHUNK_INDEX", "TOTAL_CHUNKS", "CHUNK_SIZE", "TOKEN", "DATA"]):
+                message.validation_errors.append("FILE_CHUNK message missing required fields")
+                message.is_valid = False
+
+        elif message.message_type == MessageType.FILE_RECEIVED:
+            if not all(k in message.fields for k in ["FROM", "TO", "FILEID", "STATUS", "TIMESTAMP"]):
+                message.validation_errors.append("FILE_RECEIVED message missing required fields")
+                message.is_valid = False
+            
+
         elif message.message_type == MessageType.TICTACTOE_INVITE:
             if not all(k in message.fields for k in ["FROM", "TO", "GAME_ID", "MESSAGE_ID", "SYMBOL", "TIMESTAMP", "TOKEN"]):
                 message.validation_errors.append(f"{message.message_type.value} message missing required fields")
@@ -277,7 +298,11 @@ class MessageParser:
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
                 content = message.fields.get("CONTENT", "")
-                return f"{timestamp_str} POST from {display_name}: {content}"
+                timestamp = message.fields.get("TOKEN").split("|")[1]  # gets 2nd part of token
+                ttl_sec = message.fields.get("TTL")
+
+                post_time = float(timestamp) - float(ttl_sec)  # subtracts ttl from post time
+                return f"{timestamp_str}|{post_time} POST from {display_name}: {content}"
             
             elif msg_type == MessageType.DM:
                 # dm: Show only the display_name (user_id if display name is not recorded) and content
@@ -293,6 +318,22 @@ class MessageParser:
             elif msg_type == MessageType.ACK:
                 # ack: do not display anything (handled by verbose log in LSNPPeer)
                 return ""
+            
+            elif msg_type == MessageType.LIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} likes your post [{post_timestamp}]"
+            
+            elif msg_type == MessageType.UNLIKE:
+                # final: “alice likes your post [post y message]”
+                sender_id = message.fields.get("FROM")
+                post_timestamp = message.fields.get("POST_TIMESTAMP")
+                sender_display_name = message.get_display_name(peer_profiles)
+
+                return f"{timestamp_str} {sender_display_name} unlikes your post [{post_timestamp}]"
             
             elif msg_type == MessageType.FOLLOW:
                 # final: “User alice has followed you”
@@ -326,6 +367,26 @@ class MessageParser:
                 group_name = message.fields.get("GROUP_NAME")
 
                 return f"{timestamp_str} The group \"{group_name}\" member list was updated."
+            
+            elif msg_type == MessageType.REVOKE:
+                # final: do not display anything (handled by verbose log in LSNPPeer)
+                return ""
+
+            elif msg_type == MessageType.FILE_OFFER:
+                sender_user_id = message.fields.get("FROM")
+                display_name = message.get_display_name(peer_profiles)
+                filename = message.fields.get("FILENAME", "")
+                file_id = message.fields.get("FILEID", "")
+                description = message.fields.get("DESCRIPTION", "")
+                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n        File ID: {file_id}\n        Description: {description}\n        NOTE: Use 'accept_file {file_id}' to accept or 'ignore_file {file_id}' to ignore."
+
+            elif msg_type == MessageType.FILE_CHUNK:
+                # Do not print anything until all chunks are completed
+                return ""
+
+            elif msg_type == MessageType.FILE_RECEIVED:
+                # Do not print anything
+                return ""
             
             elif msg_type == MessageType.TICTACTOE_INVITE:
                 # final: “User alice is inviting you to play tic-tac-toe”
