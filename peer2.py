@@ -2597,32 +2597,6 @@ class LSNPPeer:
                 self.send_tictactoe_result(game_id, symbol)
             else:
                 print("Usage: tictactoe_result <game_id> <symbol>")
-        # TODO: Check if working/correct
-        elif cmd == "tictactoe_invite":
-            if len(parts) > 2:
-                target_user = parts[1]
-                symbol = parts[2]
-                self.send_tictactoe_invite(target_user, symbol)
-            else:
-                print("Usage: tictactoe_invite <user_id> <symbol>")
-        # TODO: Check if working/correct
-        elif cmd == "tictactoe_move":
-            if len(parts) > 3:
-                game_id = parts[1] 
-                position = parts[2]
-                symbol = parts[3]
-                self.send_tictactoe_move(game_id, symbol, position)
-            else:
-                print("Usage: tictactoe_move <game_id> <symbol> <position>")
-
-        elif cmd == "tictactoe_result":
-            if len(parts) > 2:
-                game_id = parts[1]
-                symbol = parts[2]
-                self.send_tictactoe_result(game_id, symbol)
-            else:
-                print("Usage: tictactoe_result <game_id> <symbol>")
-
         elif cmd == "group":
             display_manager.print_groups(self.groups)
 
