@@ -55,8 +55,10 @@ class TicTacToeGame:
         if self.end:
             if self.winner:
                 print(f"{self.winner.name} wins!\n")
-            else:
+            elif self.check_draw():
                 print("It's a draw!\n")
+            else:
+                print("The game has ended without a winner.\n")
             
 
     '''
