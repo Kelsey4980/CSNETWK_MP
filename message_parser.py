@@ -228,8 +228,10 @@ class MessageParser:
             return "\n".join(output_lines)
         else: # Non-verbose mode
             msg_type = message.message_type
+
             
             if msg_type == MessageType.PROFILE:
+                print(message.fields)
                 display_name = message.fields.get("DISPLAY_NAME")
                 status = message.fields.get("STATUS", "N/A")
                 if not display_name:

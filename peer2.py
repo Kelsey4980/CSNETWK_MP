@@ -126,7 +126,6 @@ class LSNPPeer:
                     MessageType.PING,
                     MessageType.PROFILE 
                 }
-
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
@@ -178,12 +177,10 @@ class LSNPPeer:
         if user_id:
             # Just update the timestamp for any message from a known peer
             self._update_peer_last_seen(user_id, sender_ip)
-        
         # Display formatted output for valid messages
         formatted_output = self.message_parser.format_message_output(
             parsed_message, self._get_peer_profiles_dict(), self.verbose
         )
-
         if formatted_output.strip(): # Only print if there's actual content to display
             # Print general message header/footer only in verbose mode
             if self.verbose:
@@ -267,7 +264,6 @@ class LSNPPeer:
 
         # Update peer info
         self._update_peer_info(user_id, display_name, avatar_data, avatar_type, parsed_message.sender_ip, status)
-
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
     
@@ -281,7 +277,6 @@ class LSNPPeer:
         
         # Update peer ping info (preserves existing display_name and status)
         self._update_peer_ping(user_id, parsed_message.sender_ip)
-
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
     
@@ -292,8 +287,6 @@ class LSNPPeer:
 
         avatar_data = None
         avatar_type = None
-
-        print("dm", self.known_peers[sender_id])
 
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
@@ -491,7 +484,6 @@ class LSNPPeer:
 
         self.known_peers[user_id] = (display_name, avatar_data, avatar_type, ip, status, current_time)
 
-        print("updatepeerinfo", self.known_peers[user_id])
 
     def _update_peer_ping(self, user_id, ip):
         """Update peer last seen time for PING messages, preserving existing info."""
@@ -505,7 +497,6 @@ class LSNPPeer:
             # Preserve existing display_name and status, update IP and timestamp
             old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
             self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
-            print("updatepeerping", self.known_peers[user_id])
             if self.verbose and ip != old_ip:
                 display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
         else:
@@ -531,8 +522,6 @@ class LSNPPeer:
             # Preserve existing info, just update timestamp and potentially IP
             old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
             self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
-            print("updatepeerlastseen", self.known_peers[user_id])
-
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
             group = self.groups.get(group_key)
@@ -563,7 +552,7 @@ class LSNPPeer:
         """Convert internal peer storage to expected format for message parser"""
         return {
             user_id: (display_name, ip, status)
-            for user_id, (display_name, ip, status, _) in self.known_peers.items()
+            for user_id, (display_name, _, _, ip, status, _) in self.known_peers.items()
         }
 
     def _find_peer_ip(self, user_id):
