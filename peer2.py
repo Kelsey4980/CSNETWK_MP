@@ -341,6 +341,15 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
+        avatar_data = None
+        avatar_type = None
+
+        if user_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[user_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
         self.received_posts[current_time] = {
             "user_id": user_id,
             "content": content,
