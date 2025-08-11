@@ -13,9 +13,12 @@ class MessageBuilder:
     Constructs properly formatted messages according to RFC specifications
     """
     
-    def __init__(self, user_id: str, display_name: str):
+    def __init__(self, user_id: str, display_name: str, avatar_data: str = None, avatar_type: str = None):
         self.user_id = user_id
         self.display_name = display_name
+        self.avatar_data = avatar_data
+        self.avatar_type = avatar_type
+        self.token_cache = {}  # Cache tokens to avoid regeneration
     
     def generate_message_id(self) -> str:
         """Generate a unique message ID"""
@@ -53,6 +56,12 @@ class MessageBuilder:
         
         if status:
             message_parts.append(f"STATUS: {status}")
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
         
         message_parts.append("")  # Empty line at end
         return "\n".join(message_parts)
@@ -77,6 +86,12 @@ class MessageBuilder:
             f"TOKEN: {token}",
             ""
         ]
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
         
         return "\n".join(message_parts)
     
@@ -85,6 +100,7 @@ class MessageBuilder:
         Build a DM (Direct Message) message
         Format: TYPE, FROM, TO, CONTENT, TIMESTAMP, MESSAGE_ID, TOKEN
         """
+
         message_id = self.generate_message_id()
         token = self.generate_token("chat")
         timestamp = int(time.time())
@@ -99,7 +115,13 @@ class MessageBuilder:
             f"TOKEN: {token}",
             ""
         ]
-        
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
+
         return "\n".join(message_parts)
     
     def build_follow(self, to_user_id: str) -> str:

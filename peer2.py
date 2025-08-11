@@ -29,7 +29,7 @@ class LSNPPeer:
     FILE_OFFER_EXPIRATION = 120
     
     # ====== INITIALIZATION ======
-    def __init__(self, username=None, display_name=None, verbose=False):
+    def __init__(self, username=None, display_name=None, avatar_path=None, verbose=False):
         # Socket setup ✅
         self.sock = socket(AF_INET, SOCK_DGRAM)
         self.sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -45,6 +45,7 @@ class LSNPPeer:
         self.local_ip = self._get_local_ip()
         self.username = username or f"user_{self.local_ip.split('.')[-1]}"
         self.user_id = f"{self.username}@{self.local_ip}"
+        self.avatar_path = avatar_path
         self.display_name = display_name or self.username
         self.status = "Online"
         
@@ -85,7 +86,13 @@ class LSNPPeer:
         self.active_games = {}
         
         # Message handling ✅
-        self.message_builder = MessageBuilder(self.user_id, self.display_name)
+        if self.avatar_path:
+            avatar_data, avatar_type = display_manager.load_avatar(avatar_path) # for pfp
+        else:
+            avatar_data = None
+            avatar_type = None
+
+        self.message_builder = MessageBuilder(self.user_id, self.display_name, avatar_data, avatar_type)
         self.message_parser = MessageParser(verbose_mode=self.verbose)
         self.backend_security = BackendSecurity(self.revoked_tokens_self, self.revoked_tokens_others) # [TO UPDATE] not yet used
         
@@ -152,6 +159,7 @@ class LSNPPeer:
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
+
                 # Process message (this handles ACKs internally now)
                 parsed_message = self._process_message(message, addr[0])
                 if parsed_message is None:
@@ -160,6 +168,13 @@ class LSNPPeer:
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
                 no_ack_types = {MessageType.ACK, MessageType.FILE_OFFER}
                 
+
+                no_ack_types = {
+                    MessageType.ACK,
+                    MessageType.PING,
+                    MessageType.PROFILE 
+                }
+
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
@@ -227,12 +242,10 @@ class LSNPPeer:
         if user_id:
             # Just update the timestamp for any message from a known peer
             self._update_peer_last_seen(user_id, sender_ip)
-        
         # Display formatted output for valid messages
         formatted_output = self.message_parser.format_message_output(
             parsed_message, self._get_peer_profiles_dict(), self.verbose
         )
-
         if formatted_output.strip(): # Only print if there's actual content to display
             # Print general message header/footer only in verbose mode
             if self.verbose:
@@ -307,14 +320,15 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         display_name = parsed_message.fields.get("DISPLAY_NAME")
         status = parsed_message.fields.get("STATUS", "")
+        avatar_data = parsed_message.fields.get("AVATAR_DATA", "")
+        avatar_type = parsed_message.fields.get("AVATAR_TYPE", "")
         
         # Use shared validation
         if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
             return
 
         # Update peer info
-        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
-
+        self._update_peer_info(user_id, display_name, avatar_data, avatar_type, parsed_message.sender_ip, status)
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
     
@@ -328,7 +342,6 @@ class LSNPPeer:
         
         # Update peer ping info (preserves existing display_name and status)
         self._update_peer_ping(user_id, parsed_message.sender_ip)
-
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
     
@@ -337,8 +350,17 @@ class LSNPPeer:
         sender_ip = self._find_peer_ip(sender_id)
         sender_username = sender_id.split('@')[0]
 
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
         # Update peer info
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
             
@@ -384,7 +406,15 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
-        print("received post", user_id, content)
+        avatar_data = None
+        avatar_type = None
+
+        if user_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[user_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
 
         self.received_posts[current_time] = {
             "user_id": user_id,
@@ -844,7 +874,7 @@ class LSNPPeer:
         
         return True
 
-    def _update_peer_info(self, user_id, display_name, ip, status=""):
+    def _update_peer_info(self, user_id, display_name, avatar_data, avatar_type, ip, status=""):
         """Update peer information and log updates conditionally."""
         current_time = time.time()
 
@@ -853,7 +883,7 @@ class LSNPPeer:
             return
 
         if user_id in self.known_peers:
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+            old_display_name, _, _, old_ip, old_status, _ = self.known_peers[user_id]
 
             name_changed = display_name != old_display_name
             status_changed = status != old_status
@@ -872,7 +902,8 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_new_peer(display_name, user_id, ip)
 
-        self.known_peers[user_id] = (display_name, ip, status, current_time)
+        self.known_peers[user_id] = (display_name, avatar_data, avatar_type, ip, status, current_time)
+
 
     def _update_peer_ping(self, user_id, ip):
         """Update peer last seen time for PING messages, preserving existing info."""
@@ -884,16 +915,17 @@ class LSNPPeer:
         
         if user_id in self.known_peers:
             # Preserve existing display_name and status, update IP and timestamp
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-            
+            old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
             if self.verbose and ip != old_ip:
                 display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
         else:
             # New peer with only USER_ID - store with minimal info
             # Use user_id part as temporary display name
             temp_display_name = user_id
-            self.known_peers[user_id] = (temp_display_name, ip, "", current_time)
+            temp_avatar_data = None
+            temp_avatar_type = None
+            self.known_peers[user_id] = (temp_display_name, temp_avatar_data, temp_avatar_type, ip, "", current_time)
             
             if self.verbose:
                 display_manager.log_new_peer(f"{temp_display_name} (ping only)", user_id, ip)
@@ -908,9 +940,8 @@ class LSNPPeer:
         
         if user_id in self.known_peers:
             # Preserve existing info, just update timestamp and potentially IP
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-
+            old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
             group = self.groups.get(group_key)
@@ -941,7 +972,7 @@ class LSNPPeer:
         """Convert internal peer storage to expected format for message parser"""
         return {
             user_id: (display_name, ip, status)
-            for user_id, (display_name, ip, status, _) in self.known_peers.items()
+            for user_id, (display_name, _, _, ip, status, _) in self.known_peers.items()
         }
 
     def _find_peer_ip(self, user_id):
@@ -950,7 +981,7 @@ class LSNPPeer:
             return user_id
         
         peer = self.known_peers.get(user_id)
-        return peer[1] if peer else None
+        return peer[3] if peer else None
     
     def _save_group_peers(self, parsed_message):
         group_name = parsed_message.fields.get("GROUP_NAME")
@@ -2807,6 +2838,7 @@ def main():
     """Main function - parse arguments and start peer"""
     username = None
     display_name = None
+    avatar_path = None
     verbose = False
     
     # Parse command line arguments
@@ -2820,6 +2852,9 @@ def main():
         elif args[i] == "--name" and i + 1 < len(args):
             display_name = args[i + 1]
             i += 2
+        elif args[i] == "--avatar" and i + 1 < len(args):
+            avatar_path = args[i + 1]
+            i += 2
         elif args[i] == "--verbose":
             verbose = True
             i += 1
@@ -2828,7 +2863,7 @@ def main():
             sys.exit(1)
     
     # Create and start peer
-    peer = LSNPPeer(username=username, display_name=display_name, verbose=verbose)
+    peer = LSNPPeer(username=username, display_name=display_name, avatar_path=avatar_path, verbose=verbose)
     peer.start() # Start threads and broadcast initial profile
     display_manager.print_startup_complete() # Print startup complete message AFTER peer starts
     

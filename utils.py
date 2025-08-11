@@ -1,6 +1,8 @@
 import secrets
 import time
 from typing import Optional, Dict, Set, Tuple
+import base64, tempfile, os
+import mimetypes
 
 class DisplayManager:
     """
@@ -72,7 +74,7 @@ class DisplayManager:
             return
 
         print("\n--- Known Peers ---")
-        for user_id, (display_name, ip, status, last_seen) in known_peers.items():
+        for user_id, (display_name, _, _, ip, status, last_seen) in known_peers.items():
             last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen))
             status_text = f": {status}" if status else ""
             print(f"{display_name} ({user_id}) @ {ip}{status_text} | Last seen: {last_seen_str}")
@@ -196,6 +198,24 @@ class DisplayManager:
             print(f"  Members:")
             for member in group_data["members"]:
                 print(f"    - {member}")
+
+    def load_avatar(self, path: str):
+        with open(path, "rb") as f:
+            data = f.read()
+            encoded = base64.b64encode(data).decode("utf-8")
+            mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+            return encoded, mime_type # avatar_data and avatar_type, respectively
+
+    def show_avatar(self, avatar_data, avatar_type):
+        img_bytes = base64.b64decode(avatar_data) # decode base64 to bytes
+
+        ext = avatar_type.split("/")[-1] # gets file extension
+        temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}").name # temporary file for image viewer to open
+
+        with open(temp_path, "wb") as f: # puts the data into the file
+            f.write(img_bytes)
+
+        os.startfile(temp_path) # open in image viewer
 
 # Create global display manager instance
 display_manager = DisplayManager()
