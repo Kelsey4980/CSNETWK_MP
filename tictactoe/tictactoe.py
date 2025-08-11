@@ -38,8 +38,6 @@ class TicTacToeGame:
         bot_border = '╚═══════════════════════╝'
         empty_row  = '║       ║       ║       ║'
 
-        print('\n')
-
         previous_player = self.p1 if self.current_player == self.p2 else self.p2
         print(f'Turn {self.turn} - {previous_player.name} ({previous_player.symbol})\n')
 

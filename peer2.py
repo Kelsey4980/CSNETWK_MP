@@ -885,9 +885,18 @@ class LSNPPeer:
         for game_id, data in self.active_games.items():
             if now - data["last_activity"] > timeout_seconds:
                 to_remove.append(game_id)
+            
+            '''
+            opponent_id = data["game"].get_p2().id if data["game"].get_p1().id == self.user_id else data["game"].get_p1().id
+            if self._find_peer_ip(opponent_id) is None:
+                print(f"\nOpponent {opponent_id} has left the game. Forfeiting game {game_id}.\n")
+                to_remove.append(game_id)
+            '''
+                
         for game_id in to_remove:
-            print(f"Game {game_id} timed out due to inactivity.")
-            self.active_games.pop(game_id, None)
+            game_dict = self.active_games.get(game_id)
+            game_dict["game"].end = True
+            print(f"\nGame {game_id} timed out due to inactivity.\n")
 
     def _game_timeout_loop(self, timeout_seconds=120, interval=30):
         while self.running:
@@ -978,7 +987,7 @@ class LSNPPeer:
             return
 
         # Check if the game is already over
-        if game.check_draw() or game.check_win()[0]:
+        if game.check_draw() or game.check_win()[0] or game.end:
             print(f"\nGame with {target_username} is already over. Use command 'tictactoe_result' for a more detailed summary of the results\n")
             return
         
