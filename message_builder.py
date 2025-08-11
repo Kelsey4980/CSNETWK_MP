@@ -13,13 +13,21 @@ class MessageBuilder:
     Constructs properly formatted messages according to RFC specifications
     """
     
-    def __init__(self, user_id: str, display_name: str):
+    def __init__(self, user_id: str, display_name: str, avatar_data: str = None, avatar_type: str = None):
         self.user_id = user_id
         self.display_name = display_name
+        self.avatar_data = avatar_data
+        self.avatar_type = avatar_type
+        self.token_cache = {}  # Cache tokens to avoid regeneration
     
     def generate_message_id(self) -> str:
         """Generate a unique message ID"""
         return secrets.token_hex(8)
+    
+    def generate_game_id(self) -> str:
+        """Generate a unique game ID"""
+        number = secrets.randbelow(256)  # Random number between 0 and 255
+        return f"g{number:03d}"
     
     def generate_token(self, scope: str = "chat", ttl_seconds: int = None) -> str:
         """
@@ -48,6 +56,12 @@ class MessageBuilder:
         
         if status:
             message_parts.append(f"STATUS: {status}")
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
         
         message_parts.append("")  # Empty line at end
         return "\n".join(message_parts)
@@ -72,6 +86,12 @@ class MessageBuilder:
             f"TOKEN: {token}",
             ""
         ]
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
         
         return "\n".join(message_parts)
     
@@ -80,6 +100,7 @@ class MessageBuilder:
         Build a DM (Direct Message) message
         Format: TYPE, FROM, TO, CONTENT, TIMESTAMP, MESSAGE_ID, TOKEN
         """
+
         message_id = self.generate_message_id()
         token = self.generate_token("chat")
         timestamp = int(time.time())
@@ -94,7 +115,13 @@ class MessageBuilder:
             f"TOKEN: {token}",
             ""
         ]
-        
+
+        # for avatar
+        if self.avatar_data and self.avatar_type:
+            message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
+            message_parts.append(f"AVATAR_ENCODING: base64")
+            message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
+
         return "\n".join(message_parts)
     
     def build_follow(self, to_user_id: str) -> str:
@@ -144,7 +171,7 @@ class MessageBuilder:
         Build a LIKE message
         Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
         """
-        token = self.generate_token("chat")
+        token = self.generate_token("broadcast")
         timestamp = int(time.time())
         
         message_parts = [
@@ -165,7 +192,7 @@ class MessageBuilder:
         Build an UNLIKE message
         Format: TYPE, FROM, TO, POST_TIMESTAMP, ACTION, TIMESTAMP, TOKEN
         """
-        token = self.generate_token("chat")
+        token = self.generate_token("broadcast")
         timestamp = int(time.time())
 
         message_parts = [
@@ -361,6 +388,77 @@ class MessageBuilder:
             f"TO: {to_user_id}",
             f"FILEID: {file_id}",
             f"STATUS: {status}",
+            f"TIMESTAMP: {timestamp}",
+            ""
+        ]            
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_invite(self, to_user_id: str, symbol: str) -> str:
+        """
+        Build a TICTACTOE_INVITE message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, SYMBOL, TIMESTAMP, TOKEN
+        """
+        game_id = self.generate_game_id()
+        message_id = self.generate_message_id()
+        token = self.generate_token("game")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_INVITE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"SYMBOL: {symbol}",
+            f"TIMESTAMP: {timestamp}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_move(self, to_user_id: str, game_id: str, symbol: str, position: str, turn: str) -> str:
+        """
+        Build a TICTACTOE_MOVE message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, POSITION, SYMBOL, TURN, TOKEN
+        """
+        message_id = self.generate_message_id()
+        token = self.generate_token("game")
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_MOVE",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"POSITION: {position}",
+            f"SYMBOL: {symbol}",
+            f"TURN: {turn}",
+            f"TOKEN: {token}",
+            ""
+        ]
+        
+        return "\n".join(message_parts)
+    
+    def build_tictactoe_result(self, to_user_id: str, game_id: str, symbol: str, result: str, winning_line: str) -> str:
+        """
+        Build a TICTACTOE_RESULT message
+        Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, RESULT, SYMBOL, WINNING_LINE, TIMESTAMP
+        """
+        message_id = self.generate_message_id()
+        token = self.generate_token("game")
+        timestamp = int(time.time())
+        
+        message_parts = [
+            f"TYPE: TICTACTOE_RESULT",
+            f"FROM: {self.user_id}",
+            f"TO: {to_user_id}",
+            f"GAME_ID: {game_id}",
+            f"MESSAGE_ID: {message_id}",
+            f"RESULT: {result}",
+            f"SYMBOL: {symbol}",
+            f"WINNING_LINE: {winning_line}",
             f"TIMESTAMP: {timestamp}",
             ""
         ]

@@ -19,6 +19,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 import dictionary  # Only for MessageType
 from utils import display_manager
+from tictactoe.tictactoe import TicTacToeGame
 
 class LSNPPeer:
     # ====== CLASS CONSTANTS ======
@@ -29,7 +30,7 @@ class LSNPPeer:
     FILE_OFFER_EXPIRATION = 120
     
     # ====== INITIALIZATION ======
-    def __init__(self, username=None, display_name=None, verbose=False):
+    def __init__(self, username=None, display_name=None, avatar_path=None, verbose=False):
         # Socket setup ✅
         self.sock = socket(AF_INET, SOCK_DGRAM)
         self.sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -45,6 +46,7 @@ class LSNPPeer:
         self.local_ip = self._get_local_ip()
         self.username = username or f"user_{self.local_ip.split('.')[-1]}"
         self.user_id = f"{self.username}@{self.local_ip}"
+        self.avatar_path = avatar_path
         self.display_name = display_name or self.username
         self.status = "Online"
         
@@ -86,9 +88,19 @@ class LSNPPeer:
         
         # Start the ACK timeout checker thread
         threading.Thread(target=self._ack_timeout_checker, daemon=True).start()
+
+        # User Games
+        self.pending_games = {}
+        self.active_games = {}
         
         # Message handling ✅
-        self.message_builder = MessageBuilder(self.user_id, self.display_name)
+        if self.avatar_path:
+            avatar_data, avatar_type = display_manager.load_avatar(avatar_path) # for pfp
+        else:
+            avatar_data = None
+            avatar_type = None
+
+        self.message_builder = MessageBuilder(self.user_id, self.display_name, avatar_data, avatar_type)
         self.message_parser = MessageParser(verbose_mode=self.verbose)
         self.backend_security = BackendSecurity(self.revoked_tokens_self, self.revoked_tokens_others)
         
@@ -116,6 +128,7 @@ class LSNPPeer:
         self.running = True
         threading.Thread(target=self._listen_loop, daemon=True).start()
         threading.Thread(target=self._discovery_loop, daemon=True).start()
+        threading.Thread(target=self._game_timeout_loop, daemon=True).start()
 
     def stop(self):
         """Stop the peer"""
@@ -153,6 +166,7 @@ class LSNPPeer:
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
+
                 # Validate token for message types with TOKEN field
                 no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK, MessageType.REVOKE}
 
@@ -175,6 +189,13 @@ class LSNPPeer:
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
                 no_ack_types = {MessageType.ACK, MessageType.FILE_OFFER}
                 
+
+                no_ack_types = {
+                    MessageType.ACK,
+                    MessageType.PING,
+                    MessageType.PROFILE 
+                }
+
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
@@ -236,18 +257,23 @@ class LSNPPeer:
         elif parsed_message.message_type == MessageType.ACK:
             self._handle_ack_message(parsed_message)
             return parsed_message
+        elif parsed_message.message_type == MessageType.TICTACTOE_INVITE:
+            self._handle_tictactoe_invite(parsed_message)
+        elif parsed_message.message_type == MessageType.TICTACTOE_MOVE:
+            self._handle_tictactoe_move(parsed_message)
+        elif parsed_message.message_type == MessageType.TICTACTOE_RESULT:
+            self._handle_tictactoe_result(parsed_message)
+
 
         # Update last seen for any message with user identification
         user_id = parsed_message.fields.get("FROM") or parsed_message.fields.get("USER_ID")
         if user_id:
             # Just update the timestamp for any message from a known peer
             self._update_peer_last_seen(user_id, sender_ip)
-        
         # Display formatted output for valid messages
         formatted_output = self.message_parser.format_message_output(
             parsed_message, self._get_peer_profiles_dict(), self.verbose
         )
-
         if formatted_output.strip(): # Only print if there's actual content to display
             # Print general message header/footer only in verbose mode
             if self.verbose:
@@ -325,14 +351,15 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         display_name = parsed_message.fields.get("DISPLAY_NAME")
         status = parsed_message.fields.get("STATUS", "")
+        avatar_data = parsed_message.fields.get("AVATAR_DATA", "")
+        avatar_type = parsed_message.fields.get("AVATAR_TYPE", "")
         
         # Use shared validation
         if not self._validate_user_id_and_ip(user_id, parsed_message.sender_ip):
             return
 
         # Update peer info
-        self._update_peer_info(user_id, display_name, parsed_message.sender_ip, status)
-
+        self._update_peer_info(user_id, display_name, avatar_data, avatar_type, parsed_message.sender_ip, status)
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
 
@@ -349,7 +376,6 @@ class LSNPPeer:
         
         # Update peer ping info (preserves existing display_name and status)
         self._update_peer_ping(user_id, parsed_message.sender_ip)
-
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
 
@@ -361,8 +387,17 @@ class LSNPPeer:
         sender_ip = self._find_peer_ip(sender_id)
         sender_username = sender_id.split('@')[0]
 
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
         # Update peer info
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
             
@@ -408,6 +443,16 @@ class LSNPPeer:
 
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
+
+        avatar_data = None
+        avatar_type = None
+
+        if user_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[user_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
 
         self.received_posts[current_time] = {
             "token": token,
@@ -810,6 +855,82 @@ class LSNPPeer:
         if self.verbose:
             display_manager.log_debug(f"File offer received from {sender_id}: {filename} ({filesize} bytes)")
 
+    def _handle_tictactoe_invite(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        game_id = parsed_message.fields.get("GAME_ID")
+        symbol = "X" if parsed_message.fields.get("SYMBOL") == "O" else "O"
+
+        # Silently ignore if game already exists
+        if game_id in self.pending_games or game_id in self.active_games:
+            return
+
+        game = TicTacToeGame(game_id, self.user_id, symbol, sender_id)
+        self.pending_games[game_id] = {"game": game, "last_activity": time.time()}
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
+
+        if self.verbose:
+                display_manager.log_debug(f"User {sender_username} is inviting you to play tic-tac-toe. You can accept by making a move with symbol {symbol}. Game ID: {game_id}")
+
+    def _handle_tictactoe_move(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        game_id = parsed_message.fields.get("GAME_ID")
+        symbol = parsed_message.fields.get("SYMBOL")
+        position = parsed_message.fields.get("POSITION")
+
+        if not game_id in self.active_games:
+            self.active_games[game_id] = self.pending_games.pop(game_id, None)
+        
+        game_dict = self.active_games.get(game_id, None)
+        if game_dict:
+            game = game_dict["game"]
+        else:
+            game = None
+
+        # Check if the game is already over
+        if game.check_draw() or game.check_win()[0]:
+            print(f"Game with {sender_username} is already over. Use command 'tictactoe_result' for a more detailed summary of the results")
+            return
+                
+        # Update board and turn
+        valid_move = game.move(symbol, int(position))
+
+        if not valid_move:
+            return
+        
+        if self.verbose:
+            print(f"{sender_username} played: {symbol} at position {position}")
+        else:
+            print(f"{sender_username} played: {symbol} at position {position}")
+            game.print_board()
+
+        # Update last active time for the game
+        self.active_games[game_id]["last_activity"] = time.time()
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
+
+    def _handle_tictactoe_result(self, parsed_message):
+        sender_id = (parsed_message.fields.get("FROM"))
+        sender_ip = self._find_peer_ip(sender_id)
+        sender_username = sender_id.split('@')[0]
+
+        # Update peer info
+        self._update_peer_info(sender_id, sender_username, sender_ip)
+        # Log the IP address
+        self._log_ip(sender_ip)
+
     # ====== PEER INFORMATION MANAGEMENT ======
     def _validate_user_id_and_ip(self, user_id, sender_ip):
         """Shared validation logic for USER_ID format and IP matching"""
@@ -833,7 +954,7 @@ class LSNPPeer:
         
         return True
 
-    def _update_peer_info(self, user_id, display_name, ip, status=""):
+    def _update_peer_info(self, user_id, display_name, avatar_data, avatar_type, ip, status=""):
         """Update peer information and log updates conditionally."""
         current_time = time.time()
 
@@ -842,7 +963,7 @@ class LSNPPeer:
             return
 
         if user_id in self.known_peers:
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
+            old_display_name, _, _, old_ip, old_status, _ = self.known_peers[user_id]
 
             name_changed = display_name != old_display_name
             status_changed = status != old_status
@@ -861,7 +982,8 @@ class LSNPPeer:
             if self.verbose:
                 display_manager.log_new_peer(display_name, user_id, ip)
 
-        self.known_peers[user_id] = (display_name, ip, status, current_time)
+        self.known_peers[user_id] = (display_name, avatar_data, avatar_type, ip, status, current_time)
+
 
     def _update_peer_ping(self, user_id, ip):
         """Update peer last seen time for PING messages, preserving existing info."""
@@ -873,16 +995,17 @@ class LSNPPeer:
         
         if user_id in self.known_peers:
             # Preserve existing display_name and status, update IP and timestamp
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-            
+            old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
             if self.verbose and ip != old_ip:
                 display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
         else:
             # New peer with only USER_ID - store with minimal info
             # Use user_id part as temporary display name
             temp_display_name = user_id
-            self.known_peers[user_id] = (temp_display_name, ip, "", current_time)
+            temp_avatar_data = None
+            temp_avatar_type = None
+            self.known_peers[user_id] = (temp_display_name, temp_avatar_data, temp_avatar_type, ip, "", current_time)
             
             if self.verbose:
                 display_manager.log_new_peer(f"{temp_display_name} (ping only)", user_id, ip)
@@ -897,9 +1020,8 @@ class LSNPPeer:
         
         if user_id in self.known_peers:
             # Preserve existing info, just update timestamp and potentially IP
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
-
+            old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
         group = self.groups.get(group_key)
@@ -936,7 +1058,7 @@ class LSNPPeer:
         """Convert internal peer storage to expected format for message parser"""
         return {
             user_id: (display_name, ip, status)
-            for user_id, (display_name, ip, status, _) in self.known_peers.items()
+            for user_id, (display_name, _, _, ip, status, _) in self.known_peers.items()
         }
 
     def _find_peer_ip(self, user_id):
@@ -945,7 +1067,7 @@ class LSNPPeer:
             return user_id
         
         peer = self.known_peers.get(user_id)
-        return peer[1] if peer else None
+        return peer[3] if peer else None
     
     def _save_group_peers(self, parsed_message):
         group_name = parsed_message.fields.get("GROUP_NAME")
@@ -1364,6 +1486,1410 @@ class LSNPPeer:
             print(f"\n{group_id} updated.")
         else:
             print("Group not found.")
+    
+    def _cleanup_inactive_games(self, timeout_seconds=120):
+        now = time.time()
+        to_remove = []
+        for game_id, data in self.active_games.items():
+            if now - data["last_activity"] > timeout_seconds:
+                to_remove.append(game_id)
+            
+            '''
+            opponent_id = data["game"].get_p2().id if data["game"].get_p1().id == self.user_id else data["game"].get_p1().id
+            if self._find_peer_ip(opponent_id) is None:
+                print(f"\nOpponent {opponent_id} has left the game. Forfeiting game {game_id}.\n")
+                to_remove.append(game_id)
+            '''
+                
+        for game_id in to_remove:
+            game_dict = self.active_games.get(game_id)
+            if not game_dict["game"].end:
+                game_dict["game"].end = True
+                print(f"\nGame {game_id} timed out due to inactivity.\n")
+
+    def _game_timeout_loop(self, timeout_seconds=120, interval=30):
+        while self.running:
+            self._cleanup_inactive_games(timeout_seconds)
+            time.sleep(interval)
+
+    def send_tictactoe_invite(self, target_user_id, symbol):
+        """Send a TICTACTOE_INVITE message to a specific user"""
+
+        target_username = target_user_id.split('@')[0]
+
+        if not symbol.strip():
+            print("TICTACTOE_INVITE symbol cannot be empty.")
+            return
+
+        # Silently reject if invite already sent
+        for key, value in self.pending_games:
+            if value.get_p1().id == target_user_id or value.get_p2().id == target_user_id:
+                print(f"\nAlready sent a game invite to {target_username}. Cannot send another invite.\n")
+                return
+            
+        # Silently reject if already in an active game
+        for key, value in self.active_games:
+            if value.get_p1().id == target_user_id or value.get_p2().id == target_user_id:
+                print(f"\nAlready in a game with {target_username}. Cannot send another invite.\n")
+                return
+        
+        # Quick check if user_id is a known peer
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_tictactoe_invite(target_user_id, symbol)
+            fields = dict(line.split(": ", 1) for line in msg.split("\n") if ": " in line)
+
+            # Initialize a new game
+            game_id = fields.get("GAME_ID")
+            symbol = "X" if fields.get("SYMBOL") == "O" else "O"
+            game = TicTacToeGame(game_id, target_user_id, symbol, self.user_id)
+            self.pending_games[game_id] = {"game": game, "last_activity": time.time()}
+
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"Game Invite sent to {target_username}. Game ID: {game_id}\n")
+        else:
+            print(f"User {target_user_id} not found.\n")
+    
+    def send_tictactoe_move(self, game_id, symbol, position):
+        """Send a TICTACOE_MOVE message to a specific user"""
+
+        if not symbol.strip():
+            print("TICTACTOE_MOVE symbol cannot be empty.")
+            return
+
+        if not position.strip():
+            print("TICTACTOE_MOVE position cannot be empty.")
+            return
+        
+        # Check if game_id exists in pending or active games
+        if not game_id in self.pending_games and not game_id in self.active_games:
+            print(f"\nNo game found with Game ID \"{game_id}\"\n")
+            return
+        
+        # Get or create the game instance for the target user
+        if not game_id in self.active_games:
+            self.active_games[game_id] = self.pending_games.pop(game_id, None)
+
+        game_dict = self.active_games.get(game_id, None)
+        if game_dict:
+            game = game_dict["game"]
+        else:
+            game = None
+
+        if not game:
+            print(f"\nNo active game found with Game ID \"{game_id}\"\n")
+            return
+        
+        # Get opponent name and id
+        target_username = game.get_p2().name if game.get_p1().name == self.display_name else game.get_p1().name
+        target_user_id = game.get_p1().id if game.get_p2().id == self.user_id else game.get_p2().id
+
+        if self._find_peer_ip(target_user_id) is None:
+            print(f"\nOpponent has left and forfeited\n")
+            game.end = True
+            return
+
+        # Check if valid game id
+        if game.get_game_id() != game_id:
+            print(f"\nGame ID mismatch: {game.get_game_id()} != {game_id}. Cannot send move.\n")
+            return
+
+        # Check if the game is already over
+        if game.check_draw() or game.check_win()[0] or game.end:
+            print(f"\nGame with {target_username} is already over. Use command 'tictactoe_result' for a more detailed summary of the results\n")
+            return
+        
+        # Check if it is the user's turn
+        if not game.get_current_player().name == self.display_name:
+            print(f"\nIt's not your turn! Current turn: {game.get_current_player().name}\n")
+            return
+        
+        # Validate position
+        if not position.isdigit() or not (0 <= int(position) <= 8):
+            print(f"\nInvalid position: {position}. Please enter a number between 0 and 8.\n")
+            return
+        
+        # Validate symbol
+        if not symbol == game.get_current_player().symbol:
+            print(f"\nInvalid symbol: {symbol}. Please enter the correct symbol.\n")
+            return
+        
+        # Update board and turn
+        valid_move = game.move(symbol, int(position))
+
+        if not valid_move:
+            return
+        
+        turn = game.get_turn_number()
+
+        self.active_games[game_id]["last_activity"] = time.time()
+
+        # Quick check if user_id is a known peer
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_tictactoe_move(target_user_id, game_id, symbol, position, turn)
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"\nYou played: {symbol} at position {position}")
+            game.print_board()
+            if game.end:
+                print(f"\nGame with {target_username} is over. Use command 'tictactoe_result' for a more detailed summary of the results\n")
+        else:
+            print(f"User {target_user_id} not found.")
+    
+    def send_tictactoe_result(self, game_id, symbol):
+        """Send a TICTACTOE_RESULT message to a specific user"""
+
+        if not symbol.strip():
+            print("TICTACTOE_MOVE symbol cannot be empty.")
+            return
+        
+        # Get or create the game instance for the target user
+        game_dict = self.active_games.get(game_id, None)
+        if game_dict:
+            game = game_dict["game"]
+        else:
+            game = None
+
+        if not game:
+            print(f"\nNo active game found with Game ID \"{game_id}\"\n")
+            return
+        
+        # Check if valid game id
+        if game.get_game_id() != game_id:
+            print(f"\nGame ID mismatch: {game.get_game_id()} != {game_id}.\n")
+            return
+        
+        # Get opponent name and id
+        target_username = game.get_p2().name if game.get_p1().name == self.display_name else game.get_p1().name
+        target_user_id = game.get_p1().id if game.get_p2().id == self.user_id else game.get_p2().id
+
+        # Check if the game is still ongoing
+        if not (game.check_draw() or game.check_win()[0] or game.end):
+            print(f"\nGame with {target_username} is still ongoing.\n")
+            return
+        
+        # Check for draws
+        draw = game.check_draw()
+        win = game.check_win()[0]
+
+        if draw:
+            result = "DRAW"
+            winning_line = "No winning line"
+            self.active_games.pop(game_id, None) # Remove game from active games
+        elif win:
+            win_info = game.check_win()
+
+            if not win_info[0]:
+                result = "ONGOING"
+                winning_line = "No winning line"
+            else:
+                # WIN if current user's symbol matches the winning symbol, else LOSE
+                result = "WIN" if win_info[2] == symbol else "LOSE"
+                winning_line = win_info[1]
+                self.active_games.pop(game_id, None)  # Remove game from active games
+        elif game.end:
+            result = "FORFEIT"
+            winning_line = "No winning line"
+            self.active_games.pop(game_id, None)
+        
+        # Quick check if user_id is a known peer
+        target_ip = self._find_peer_ip(target_user_id)
+        
+        if target_ip:
+            msg = self.message_builder.build_tictactoe_result(target_user_id, game_id, symbol, result, winning_line)
+            self.send_message_to_peer(target_user_id, msg)
+            print(f"\nGame Result: {result}")
+            print(f"Winning Line: {winning_line}")
+            game.print_board()
+        else:
+            print(f"User {target_user_id} not found.")
+
+    # TODO: Check if correct
+    def send_revoke(self, token):
+        current_time = time.time()
+
+        if token in self.revoked_tokens_self:
+            print(f"Token {token} is already revoked by you.")
+            return
+        
+        # check if the token to be revoked is a token from the sender
+        try:
+            user_part = token.split("|")[0] 
+            user_id = user_part.split("@")[0]
+        except (IndexError, ValueError):
+            print(f"Invalid token format: {token}")
+            return
+
+        if user_id != self.user_id:
+            print(f"Cannot revoke token {token} — it does not belong to you.")
+            return
+
+        # add token to self-revoked list
+        self.revoked_tokens_self.append(token)
+        msg = self.message_builder.build_revoke(token, current_time)
+
+        # broadcast to all known peers
+        # [TO UPDATE] clarify scope 
+        for peer_id in self.known_peers:
+            self.send_message_to_peer(peer_id, msg)
+
+        print(f"Revoked token: {token}")
+    
+    def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
+        """Send a message and track it for ACK if needed"""
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return False
+        
+        try:
+            self.sock.sendto(message.encode(), (target_ip, self.PORT))
+            self.stats['messages_sent'] += 1
+            
+            if needs_ack:
+                # Parse message to get MESSAGE_ID
+                parsed = self.message_parser.parse_message(message)
+                if parsed and parsed.fields.get("MESSAGE_ID"):
+                    msg_id = parsed.fields.get("MESSAGE_ID")
+                    with self.ack_lock:
+                        self.pending_acks[msg_id] = {
+                            'message': message,
+                            'target_ip': target_ip,
+                            'retries': 0,
+                            'timestamp': time.time()
+                        }
+                    
+                    if self.verbose:
+                        display_manager.log_debug(f"Sent message {msg_id} to {target_user_id}, waiting for ACK")
+            
+            return True
+        except Exception as e:
+            print(f"Error sending message to {target_user_id}: {e}")
+            return False
+
+    def send_file_offer(self, target_user_id, filepath, description=""):
+        """Send a file offer to a specific user"""
+        # Resolve the file path
+        resolved_path = self._resolve_file_path(filepath)
+        
+        if not resolved_path:
+            print(f"File not found: {filepath}")
+            if os.path.basename(filepath) == filepath:
+                print(f"  Checked default directory: {os.path.join(self.DEFAULT_FILES_DIR, filepath)}")
+            print(f"  Checked as given path: {filepath}")
+            return
+        
+        filename = os.path.basename(resolved_path)
+        filesize = os.path.getsize(resolved_path)
+        filetype = self._guess_file_type(filename)
+        
+        # Check if user exists
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return
+        
+        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
+        
+        # Extract file ID from the message for tracking
+        parsed_msg = self.message_parser.parse_message(msg)
+        file_id = parsed_msg.fields.get("FILEID")
+        
+        # Store file info for automatic sending (use resolved path)
+        self.file_transfers[file_id] = {
+            "filepath": resolved_path,
+            "target_user": target_user_id,
+            "filename": filename,
+            "filesize": filesize,
+            "sent_chunks": 0,
+            "status": "offered"
+        }
+        
+        # Send with ACK tracking - chunks will be sent automatically when ACK is received
+        if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+            print(f"File offer sent to {target_user_id}: {filename} ({file_id})")
+        else:
+            # Clean up on send failure
+            if file_id in self.file_transfers:
+                del self.file_transfers[file_id]
+
+    def send_file_chunks(self, file_id, chunk_size=1024):
+        """Send file chunks for an accepted file transfer"""
+        if file_id not in self.file_transfers:
+            print(f"File transfer {file_id} not found")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                chunks.append(encoded_chunk)
+            
+            total_chunks = len(chunks)
+            successful_chunks = 0
+            
+            # Send each chunk with ACK tracking
+            for i, chunk_data in enumerate(chunks):
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
+                )
+                
+                if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+                    successful_chunks += 1
+                    if self.verbose:
+                        display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
+                    time.sleep(0.1)  # Small delay between chunks
+                else:
+                    print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
+            
+            if successful_chunks == total_chunks:
+                print(f"Sent {total_chunks} chunks for file {file_id}")
+                transfer_info["status"] = "sent"
+            else:
+                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
+                
+        except Exception as e:
+            print(f"Error sending file chunks: {e}")
+
+    # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
+    def _complete_file_transfer(self, file_id):
+        """Complete file transfer"""
+        if file_id not in self.file_transfers or file_id not in self.file_chunks:
+            if self.verbose:
+                display_manager.log_warning(f"Cannot complete transfer - missing data for {file_id}")
+            return
+            
+        transfer_info = self.file_transfers[file_id]
+        chunks = self.file_chunks[file_id]
+        
+        # Check for missing chunks
+        missing_chunks = []
+        for i in range(transfer_info["total_chunks"]):
+            if i not in chunks:
+                missing_chunks.append(i)
+        
+        if missing_chunks:
+            if self.verbose:
+                display_manager.log_warning(f"Missing chunks for {file_id}: {missing_chunks}")
+            return
+        
+        # Reassemble file in correct order
+        file_data = b""
+        
+        for i in range(transfer_info["total_chunks"]):
+            try:
+                chunk_b64 = chunks[i]
+                chunk_data = base64.b64decode(chunk_b64)
+                file_data += chunk_data
+            except Exception as e:
+                if self.verbose:
+                    display_manager.log_warning(f"Error decoding chunk {i} for {file_id}: {e}")
+                return
+        
+        # Save file
+        filename = transfer_info["filename"]
+        save_path = self._get_save_path(filename)
+        
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            
+            with open(save_path, 'wb') as f:
+                f.write(file_data)
+            
+            saved_size = os.path.getsize(save_path)
+
+            # Send confirmation
+            sender_id = transfer_info["sender"]
+            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
+            self.send_message_to_peer(sender_id, msg)
+            
+            print(f"File transfer of {filename} is complete.")
+            
+        except Exception as e:
+            print(f"Error saving file {filename}: {e}")
+            return
+        
+        # Clean up
+        if file_id in self.file_transfers:
+            del self.file_transfers[file_id]
+        if file_id in self.file_chunks:
+            del self.file_chunks[file_id]
+        if file_id in self.pending_file_offers:
+            del self.pending_file_offers[file_id]
+
+    def _make_safe_filename(self, filename):
+        """Make filename safe for saving"""
+        # Remove dangerous characters
+        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        safe_filename = "".join(c for c in filename if c in safe_chars)
+        
+        # Prevent empty filename
+        if not safe_filename:
+            safe_filename = "received_file"
+        
+        # Add counter if file exists
+        counter = 1
+        original_name = safe_filename
+        while os.path.exists(safe_filename):
+            name, ext = os.path.splitext(original_name)
+            safe_filename = f"{name}_{counter}{ext}"
+            counter += 1
+        
+        return safe_filename
+
+    def accept_file(self, file_id):
+        """Accept a pending file offer"""
+        if file_id not in self.pending_file_offers:
+            print(f"No pending file offer with ID: {file_id}")
+            return
+        
+        offer_info = self.pending_file_offers[file_id]
+        
+        # Check if already processed
+        if offer_info["accepted"] is not None:
+            status = "accepted" if offer_info["accepted"] else "ignored"
+            print(f"File {file_id} already {status}")
+            return
+        
+        # Mark as accepted
+        offer_info["accepted"] = True
+
+        if self.verbose:
+            print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
+
+        # Send ACK using FILEID in the MESSAGE_ID field
+        sender_id = offer_info["sender"]
+        ack = self.message_builder.build_ack(file_id, "ACCEPTED")
+        self.send_message_to_peer(sender_id, ack)
+        
+        if self.verbose:
+            print(f"ACK sent to {sender_id} to trigger file transfer.")
+
+    def ignore_file(self, file_id):
+        """Ignore a pending file offer"""
+        if file_id not in self.pending_file_offers:
+            print(f"No pending file offer with ID: {file_id}")
+            return
+        
+        offer_info = self.pending_file_offers[file_id]
+        
+        # Check if already processed
+        if offer_info["accepted"] is not None:
+            if offer_info["accepted"] is True:
+                print(f"File {file_id} already accepted")
+            else:
+                # Check if it was auto-expired or manually ignored
+                elapsed = time.time() - offer_info["timestamp"]
+                if elapsed > self.FILE_OFFER_EXPIRATION:
+                    print(f"File {file_id} already expired and ignored")
+                else:
+                    print(f"File {file_id} already ignored")
+            return
+
+        # Mark as ignored
+        offer_info["accepted"] = False
+        print(f"Ignored file: {offer_info['filename']} from {offer_info['sender']}")
+
+        if self.verbose:
+            display_manager.log_debug(f"File {file_id} manually ignored")
+
+    def _guess_file_type(self, filename):
+        """Guess MIME type from filename extension"""
+        ext = os.path.splitext(filename)[1].lower()
+        mime_types = {
+            '.txt': 'text/plain',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.mp3': 'audio/mpeg',
+            '.mp4': 'video/mp4',
+            '.zip': 'application/zip'
+        }
+        return mime_types.get(ext, 'application/octet-stream')
+    
+    def list_file_transfers(self):
+        """List pending file offers and active transfers (with automatic cleanup)"""
+        # Clean up expired offers first (marks them as ignored)
+        expired_count = self._cleanup_expired_file_offers()
+        
+        if expired_count > 0 and self.verbose:
+            display_manager.log_debug(f"Marked {expired_count} expired file offers as ignored")
+        
+        print("\n--- File Transfers ---")
+        
+        # Filter only offers that are not ignored or expired
+        visible_offers = {
+            fid: offer for fid, offer in self.pending_file_offers.items()
+            if offer["accepted"] is None or offer["accepted"] is True
+        }
+        
+        if visible_offers:
+            print("Pending Offers:")
+            for file_id, offer in visible_offers.items():
+                status_text = ""
+                if offer["accepted"] is True:
+                    status_text = " (ACCEPTED)"
+                else:
+                    # Show time remaining for pending offers
+                    elapsed = time.time() - offer["timestamp"]
+                    remaining = max(0, self.FILE_OFFER_EXPIRATION - elapsed)
+                    status_text = f" (PENDING - {remaining:.0f}s remaining)"
+                
+                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}{status_text}")
+        
+        if self.file_transfers:
+            print("Active Transfers:")
+            for file_id, transfer in self.file_transfers.items():
+                if "received_chunks" in transfer:
+                    print(f"  {file_id}: {transfer['filename']} - {transfer['received_chunks']}/{transfer.get('total_chunks', '?')} chunks")
+                else:
+                    print(f"  {file_id}: {transfer['filename']} - {transfer['status']}")
+        
+        if not visible_offers and not self.file_transfers:
+            print("No active file transfers")
+        
+        print("---------------------\n")
+    
+    def _ensure_files_directory(self):
+        """Create the default files directory if it doesn't exist"""
+        try:
+            if not os.path.exists(self.DEFAULT_FILES_DIR):
+                os.makedirs(self.DEFAULT_FILES_DIR)
+                if self.verbose:
+                    display_manager.log_debug(f"Created default files directory: {self.DEFAULT_FILES_DIR}")
+        except Exception as e:
+            if self.verbose:
+                display_manager.log_warning(f"Could not create files directory: {e}")
+    
+    def _resolve_file_path(self, filepath):
+        """
+        Resolve file path with fallback logic:
+        1. Check if it's just a filename -> look in default directory
+        2. Check if it's a relative/absolute path that exists
+        3. Return None if file not found anywhere
+        """
+        # If it's just a filename (no path separators), check default directory first
+        if os.path.basename(filepath) == filepath:
+            default_path = os.path.join(self.DEFAULT_FILES_DIR, filepath)
+            if os.path.exists(default_path):
+                return default_path
+        
+        # Check if the original path exists (relative or absolute)
+        if os.path.exists(filepath):
+            return filepath
+        
+        # File not found anywhere
+        return None
+    
+    def _get_save_path(self, filename):
+        """Get the path where received files should be saved"""
+        return os.path.join(self.DEFAULT_FILES_DIR, self._make_safe_filename(filename))
+
+    def list_files_directory(self):
+        """List files in the default files directory"""
+        if not os.path.exists(self.DEFAULT_FILES_DIR):
+            print(f"Files directory '{self.DEFAULT_FILES_DIR}' does not exist")
+            return
+        
+        try:
+            files = os.listdir(self.DEFAULT_FILES_DIR)
+            if not files:
+                print(f"No files in '{self.DEFAULT_FILES_DIR}' directory")
+                return
+            
+            print(f"\n--- Files in '{self.DEFAULT_FILES_DIR}' directory ---")
+            for filename in sorted(files):
+                filepath = os.path.join(self.DEFAULT_FILES_DIR, filename)
+                if os.path.isfile(filepath):
+                    size = os.path.getsize(filepath)
+                    print(f"  {filename} ({size} bytes)")
+            print("-------------------------------------\n")
+            
+        except Exception as e:
+            print(f"Error listing files directory: {e}")
+    
+    def _auto_send_file_chunks(self, file_id, chunk_size=1024):
+        """Automatically send file chunks after offer acceptance"""
+        if file_id not in self.file_transfers:
+            if self.verbose:
+                display_manager.log_warning(f"Cannot auto-send chunks for unknown file transfer: {file_id}")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        if self.verbose:
+            display_manager.log_debug(f"Starting file transfer for {file_id}")
+        
+        # Small delay to ensure the recipient is ready
+        time.sleep(0.5)
+        
+        try:
+            # Check if file exists and is readable
+            if not os.path.exists(filepath):
+                print(f"Error: File not found: {filepath}")
+                return
+            
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            if len(file_data) == 0:
+                print(f"Error: File {filepath} is empty!")
+                return
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_bytes = file_data[i:i + chunk_size]
+                chunks.append(chunk_bytes)
+            
+            total_chunks = len(chunks)
+            successful_chunks = 0
+            
+            if self.verbose:
+                display_manager.log_debug(f"Sending {total_chunks} chunks for {transfer_info['filename']}")
+            
+            # Send each chunk
+            for i, chunk_bytes in enumerate(chunks):
+                # Encode chunk as base64 for transmission
+                encoded_chunk = base64.b64encode(chunk_bytes).decode('utf-8')
+                
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_bytes), encoded_chunk
+                )
+                
+                try:
+                    target_ip = self._find_peer_ip(target_user_id)
+                    if target_ip:
+                        self.sock.sendto(msg.encode(), (target_ip, self.PORT))
+                        successful_chunks += 1
+                        self.stats['messages_sent'] += 1
+                        
+                        if self.verbose:
+                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks}")
+                        time.sleep(0.2)  # Delay between chunks
+                    else:
+                        print(f"Error: Cannot find IP for user {target_user_id}")
+                        break
+                except Exception as e:
+                    print(f"Error: Failed to send chunk {i + 1}/{total_chunks}: {e}")
+                    break
+            
+            if successful_chunks == total_chunks:
+                print(f"File transfer of {transfer_info['filename']} completed.")
+                transfer_info["status"] = "sent"
+            else:
+                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully")
+                
+        except Exception as e:
+            print(f"Error in file transfer: {e}")
+    
+    def _cleanup_expired_file_offers(self):
+        """Mark expired file offers as ignored (called from list_file_transfers)"""
+        current_time = time.time()
+        expired_offers = []
+        
+        for file_id, offer_info in self.pending_file_offers.items():
+            if offer_info["accepted"] is None:  # Only expire pending offers
+                if current_time - offer_info["timestamp"] > self.FILE_OFFER_EXPIRATION:
+                    expired_offers.append(file_id)
+        
+        for file_id in expired_offers:
+            self.pending_file_offers[file_id]["accepted"] = False
+            if self.verbose:
+                display_manager.log_debug(f"File offer {file_id} expired after {self.FILE_OFFER_EXPIRATION} seconds - marked as ignored")
+        
+        return len(expired_offers)
+
+    # ====== ACK TIMEOUT & RETRY ======
+    def _ack_timeout_checker(self):
+        """Check for ACK timeouts and handle retries"""
+        while self.running:
+            try:
+                current_time = time.time()
+                expired_messages = []
+                
+                with self.ack_lock:
+                    for msg_id, ack_info in self.pending_acks.items():
+                        if current_time - ack_info['timestamp'] > self.ack_timeout:
+                            expired_messages.append(msg_id)
+                
+                for msg_id in expired_messages:
+                    self._handle_ack_timeout(msg_id)
+                
+                time.sleep(0.5)  # Check every 500ms
+            except Exception as e:
+                if self.running and self.verbose:
+                    display_manager.log_warning(f"Error in ACK timeout checker: {e}")
+    
+    def _handle_ack_timeout(self, message_id):
+        """Handle ACK timeout for a message"""
+        with self.ack_lock:
+            if message_id not in self.pending_acks:
+                return
+            
+            ack_info = self.pending_acks[message_id]
+            ack_info['retries'] += 1
+            
+            if ack_info['retries'] <= self.max_retries:
+                # Retry sending the message
+                try:
+                    self.sock.sendto(ack_info['message'].encode(), (ack_info['target_ip'], self.PORT))
+                    ack_info['timestamp'] = time.time()  # Update timestamp for new retry
+                    
+                    if self.verbose:
+                        display_manager.log_debug(f"Retrying message {message_id} (attempt {ack_info['retries']}/{self.max_retries})")
+                except Exception as e:
+                    if self.verbose:
+                        display_manager.log_warning(f"Failed to retry message {message_id}: {e}")
+            else:
+                # Max retries exceeded
+                if self.verbose:
+                    display_manager.log_warning(f"Max retries exceeded for message {message_id}")
+                
+                # Handle specific failure cases
+                self._handle_message_failure(message_id, ack_info)
+                
+                # Remove from pending ACKs
+                del self.pending_acks[message_id]
+
+    def _handle_message_failure(self, message_id, ack_info):
+        """Handle message failure after max retries"""
+        message = ack_info['message']
+        
+        # Parse message to determine type and handle accordingly
+        try:
+            parsed = self.message_parser.parse_message(message)
+            if parsed and parsed.message_type == MessageType.FILE_OFFER:
+                file_id = parsed.fields.get("FILEID")
+                if file_id and file_id in self.file_transfers:
+                    print(f"Failed to send file offer for {self.file_transfers[file_id]['filename']} - no response from recipient")
+                    # Clean up failed file transfer
+                    del self.file_transfers[file_id]
+            elif parsed and parsed.message_type == MessageType.FILE_CHUNK:
+                file_id = parsed.fields.get("FILEID")
+                chunk_index = parsed.fields.get("CHUNK_INDEX")
+                if file_id and chunk_index is not None:
+                    print(f"Failed to send file chunk {chunk_index} for file {file_id} - transfer may be incomplete")
+        except Exception as e:
+            if self.verbose:
+                display_manager.log_warning(f"Error handling message failure: {e}")
+
+
+    # TODO: Check if correct
+    def send_revoke(self, token):
+        current_time = time.time()
+
+        if token in self.revoked_tokens_self:
+            print(f"Token {token} is already revoked by you.")
+            return
+        
+        # check if the token to be revoked is a token from the sender
+        try:
+            user_id = token.split("|")[0] 
+        except (IndexError, ValueError):
+            print(f"Invalid token format: {token}")
+            return
+
+        if user_id != self.user_id:
+            print(f"Cannot revoke token {token} — it does not belong to you.")
+            return
+
+        # add token to self-revoked list
+        self.revoked_tokens_self.append(token)
+        msg_revoke = self.message_builder.build_revoke(token)
+        self.save_sent_messages(msg_revoke)
+
+        original_msg_data = self.all_message_sent.get(token)
+        if original_msg_data:
+            original_msg_str = original_msg_data["message"]
+            to_field = None
+            for line in original_msg_str.splitlines():
+                if line.startswith("TO: "):
+                    to_field = line[4:].strip()
+                    break
+            
+            if to_field:
+                # Send revoke only to that peer
+                self.send_message_to_peer(to_field, msg_revoke)
+            else:
+                # broadcast to all
+                for peer_id in self.known_peers:
+                    self.send_message_to_peer(peer_id, msg_revoke)
+        else:
+            print(f"No record of sent message with token: {token}")
+
+        print(f"Revoked token: {token}")
+    
+    def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
+        """Send a message and track it for ACK if needed"""
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return False
+        
+        try:
+            self.sock.sendto(message.encode(), (target_ip, self.PORT))
+            self.stats['messages_sent'] += 1
+            
+            if needs_ack:
+                # Parse message to get MESSAGE_ID
+                parsed = self.message_parser.parse_message(message)
+                if parsed and parsed.fields.get("MESSAGE_ID"):
+                    msg_id = parsed.fields.get("MESSAGE_ID")
+                    with self.ack_lock:
+                        self.pending_acks[msg_id] = {
+                            'message': message,
+                            'target_ip': target_ip,
+                            'retries': 0,
+                            'timestamp': time.time()
+                        }
+                    
+                    if self.verbose:
+                        display_manager.log_debug(f"Sent message {msg_id} to {target_user_id}, waiting for ACK")
+            
+            return True
+        except Exception as e:
+            print(f"Error sending message to {target_user_id}: {e}")
+            return False
+
+    def send_file_offer(self, target_user_id, filepath, description=""):
+        """Send a file offer to a specific user"""
+        # Resolve the file path
+        resolved_path = self._resolve_file_path(filepath)
+        
+        if not resolved_path:
+            print(f"File not found: {filepath}")
+            if os.path.basename(filepath) == filepath:
+                print(f"  Checked default directory: {os.path.join(self.DEFAULT_FILES_DIR, filepath)}")
+            print(f"  Checked as given path: {filepath}")
+            return
+        
+        filename = os.path.basename(resolved_path)
+        filesize = os.path.getsize(resolved_path)
+        filetype = self._guess_file_type(filename)
+        
+        # Check if user exists
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return
+        
+        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
+        
+        # Extract file ID from the message for tracking
+        parsed_msg = self.message_parser.parse_message(msg)
+        file_id = parsed_msg.fields.get("FILEID")
+        
+        # Store file info for automatic sending (use resolved path)
+        self.file_transfers[file_id] = {
+            "filepath": resolved_path,
+            "target_user": target_user_id,
+            "filename": filename,
+            "filesize": filesize,
+            "sent_chunks": 0,
+            "status": "offered"
+        }
+        
+        # Send with ACK tracking - chunks will be sent automatically when ACK is received
+        if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+            print(f"File offer sent to {target_user_id}: {filename} ({file_id})")
+        else:
+            # Clean up on send failure
+            if file_id in self.file_transfers:
+                del self.file_transfers[file_id]
+
+    def send_file_chunks(self, file_id, chunk_size=1024):
+        """Send file chunks for an accepted file transfer"""
+        if file_id not in self.file_transfers:
+            print(f"File transfer {file_id} not found")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        try:
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_data = file_data[i:i + chunk_size]
+                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
+                chunks.append(encoded_chunk)
+            
+            total_chunks = len(chunks)
+            successful_chunks = 0
+            
+            # Send each chunk with ACK tracking
+            for i, chunk_data in enumerate(chunks):
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
+                )
+                
+                if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+                    successful_chunks += 1
+                    if self.verbose:
+                        display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
+                    time.sleep(0.1)  # Small delay between chunks
+                else:
+                    print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
+            
+            if successful_chunks == total_chunks:
+                print(f"Sent {total_chunks} chunks for file {file_id}")
+                transfer_info["status"] = "sent"
+            else:
+                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
+                
+        except Exception as e:
+            print(f"Error sending file chunks: {e}")
+
+    # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
+    def _complete_file_transfer(self, file_id):
+        """Complete file transfer"""
+        if file_id not in self.file_transfers or file_id not in self.file_chunks:
+            if self.verbose:
+                display_manager.log_warning(f"Cannot complete transfer - missing data for {file_id}")
+            return
+            
+        transfer_info = self.file_transfers[file_id]
+        chunks = self.file_chunks[file_id]
+        
+        # Check for missing chunks
+        missing_chunks = []
+        for i in range(transfer_info["total_chunks"]):
+            if i not in chunks:
+                missing_chunks.append(i)
+        
+        if missing_chunks:
+            if self.verbose:
+                display_manager.log_warning(f"Missing chunks for {file_id}: {missing_chunks}")
+            return
+        
+        # Reassemble file in correct order
+        file_data = b""
+        
+        for i in range(transfer_info["total_chunks"]):
+            try:
+                chunk_b64 = chunks[i]
+                chunk_data = base64.b64decode(chunk_b64)
+                file_data += chunk_data
+            except Exception as e:
+                if self.verbose:
+                    display_manager.log_warning(f"Error decoding chunk {i} for {file_id}: {e}")
+                return
+        
+        # Save file
+        filename = transfer_info["filename"]
+        save_path = self._get_save_path(filename)
+        
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            
+            with open(save_path, 'wb') as f:
+                f.write(file_data)
+            
+            saved_size = os.path.getsize(save_path)
+
+            # Send confirmation
+            sender_id = transfer_info["sender"]
+            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
+            self.send_message_to_peer(sender_id, msg)
+            
+            print(f"File transfer of {filename} is complete.")
+            
+        except Exception as e:
+            print(f"Error saving file {filename}: {e}")
+            return
+        
+        # Clean up
+        if file_id in self.file_transfers:
+            del self.file_transfers[file_id]
+        if file_id in self.file_chunks:
+            del self.file_chunks[file_id]
+        if file_id in self.pending_file_offers:
+            del self.pending_file_offers[file_id]
+
+    def _make_safe_filename(self, filename):
+        """Make filename safe for saving"""
+        # Remove dangerous characters
+        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        safe_filename = "".join(c for c in filename if c in safe_chars)
+        
+        # Prevent empty filename
+        if not safe_filename:
+            safe_filename = "received_file"
+        
+        # Add counter if file exists
+        counter = 1
+        original_name = safe_filename
+        while os.path.exists(safe_filename):
+            name, ext = os.path.splitext(original_name)
+            safe_filename = f"{name}_{counter}{ext}"
+            counter += 1
+        
+        return safe_filename
+
+    def accept_file(self, file_id):
+        """Accept a pending file offer"""
+        if file_id not in self.pending_file_offers:
+            print(f"No pending file offer with ID: {file_id}")
+            return
+        
+        offer_info = self.pending_file_offers[file_id]
+        
+        # Check if already processed
+        if offer_info["accepted"] is not None:
+            status = "accepted" if offer_info["accepted"] else "ignored"
+            print(f"File {file_id} already {status}")
+            return
+        
+        # Mark as accepted
+        offer_info["accepted"] = True
+
+        if self.verbose:
+            print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
+
+        # Send ACK using FILEID in the MESSAGE_ID field
+        sender_id = offer_info["sender"]
+        ack = self.message_builder.build_ack(file_id, "ACCEPTED")
+        self.send_message_to_peer(sender_id, ack)
+        
+        if self.verbose:
+            print(f"ACK sent to {sender_id} to trigger file transfer.")
+
+    def ignore_file(self, file_id):
+        """Ignore a pending file offer"""
+        if file_id not in self.pending_file_offers:
+            print(f"No pending file offer with ID: {file_id}")
+            return
+        
+        offer_info = self.pending_file_offers[file_id]
+        
+        # Check if already processed
+        if offer_info["accepted"] is not None:
+            if offer_info["accepted"] is True:
+                print(f"File {file_id} already accepted")
+            else:
+                # Check if it was auto-expired or manually ignored
+                elapsed = time.time() - offer_info["timestamp"]
+                if elapsed > self.FILE_OFFER_EXPIRATION:
+                    print(f"File {file_id} already expired and ignored")
+                else:
+                    print(f"File {file_id} already ignored")
+            return
+
+        # Mark as ignored
+        offer_info["accepted"] = False
+        print(f"Ignored file: {offer_info['filename']} from {offer_info['sender']}")
+
+        if self.verbose:
+            display_manager.log_debug(f"File {file_id} manually ignored")
+
+    def _guess_file_type(self, filename):
+        """Guess MIME type from filename extension"""
+        ext = os.path.splitext(filename)[1].lower()
+        mime_types = {
+            '.txt': 'text/plain',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.mp3': 'audio/mpeg',
+            '.mp4': 'video/mp4',
+            '.zip': 'application/zip'
+        }
+        return mime_types.get(ext, 'application/octet-stream')
+    
+    def list_file_transfers(self):
+        """List pending file offers and active transfers (with automatic cleanup)"""
+        # Clean up expired offers first (marks them as ignored)
+        expired_count = self._cleanup_expired_file_offers()
+        
+        if expired_count > 0 and self.verbose:
+            display_manager.log_debug(f"Marked {expired_count} expired file offers as ignored")
+        
+        print("\n--- File Transfers ---")
+        
+        # Filter only offers that are not ignored or expired
+        visible_offers = {
+            fid: offer for fid, offer in self.pending_file_offers.items()
+            if offer["accepted"] is None or offer["accepted"] is True
+        }
+        
+        if visible_offers:
+            print("Pending Offers:")
+            for file_id, offer in visible_offers.items():
+                status_text = ""
+                if offer["accepted"] is True:
+                    status_text = " (ACCEPTED)"
+                else:
+                    # Show time remaining for pending offers
+                    elapsed = time.time() - offer["timestamp"]
+                    remaining = max(0, self.FILE_OFFER_EXPIRATION - elapsed)
+                    status_text = f" (PENDING - {remaining:.0f}s remaining)"
+                
+                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}{status_text}")
+        
+        if self.file_transfers:
+            print("Active Transfers:")
+            for file_id, transfer in self.file_transfers.items():
+                if "received_chunks" in transfer:
+                    print(f"  {file_id}: {transfer['filename']} - {transfer['received_chunks']}/{transfer.get('total_chunks', '?')} chunks")
+                else:
+                    print(f"  {file_id}: {transfer['filename']} - {transfer['status']}")
+        
+        if not visible_offers and not self.file_transfers:
+            print("No active file transfers")
+        
+        print("---------------------\n")
+    
+    def _ensure_files_directory(self):
+        """Create the default files directory if it doesn't exist"""
+        try:
+            if not os.path.exists(self.DEFAULT_FILES_DIR):
+                os.makedirs(self.DEFAULT_FILES_DIR)
+                if self.verbose:
+                    display_manager.log_debug(f"Created default files directory: {self.DEFAULT_FILES_DIR}")
+        except Exception as e:
+            if self.verbose:
+                display_manager.log_warning(f"Could not create files directory: {e}")
+    
+    def _resolve_file_path(self, filepath):
+        """
+        Resolve file path with fallback logic:
+        1. Check if it's just a filename -> look in default directory
+        2. Check if it's a relative/absolute path that exists
+        3. Return None if file not found anywhere
+        """
+        # If it's just a filename (no path separators), check default directory first
+        if os.path.basename(filepath) == filepath:
+            default_path = os.path.join(self.DEFAULT_FILES_DIR, filepath)
+            if os.path.exists(default_path):
+                return default_path
+        
+        # Check if the original path exists (relative or absolute)
+        if os.path.exists(filepath):
+            return filepath
+        
+        # File not found anywhere
+        return None
+    
+    def _get_save_path(self, filename):
+        """Get the path where received files should be saved"""
+        return os.path.join(self.DEFAULT_FILES_DIR, self._make_safe_filename(filename))
+
+    def list_files_directory(self):
+        """List files in the default files directory"""
+        if not os.path.exists(self.DEFAULT_FILES_DIR):
+            print(f"Files directory '{self.DEFAULT_FILES_DIR}' does not exist")
+            return
+        
+        try:
+            files = os.listdir(self.DEFAULT_FILES_DIR)
+            if not files:
+                print(f"No files in '{self.DEFAULT_FILES_DIR}' directory")
+                return
+            
+            print(f"\n--- Files in '{self.DEFAULT_FILES_DIR}' directory ---")
+            for filename in sorted(files):
+                filepath = os.path.join(self.DEFAULT_FILES_DIR, filename)
+                if os.path.isfile(filepath):
+                    size = os.path.getsize(filepath)
+                    print(f"  {filename} ({size} bytes)")
+            print("-------------------------------------\n")
+            
+        except Exception as e:
+            print(f"Error listing files directory: {e}")
+    
+    def _auto_send_file_chunks(self, file_id, chunk_size=1024):
+        """Automatically send file chunks after offer acceptance"""
+        if file_id not in self.file_transfers:
+            if self.verbose:
+                display_manager.log_warning(f"Cannot auto-send chunks for unknown file transfer: {file_id}")
+            return
+        
+        transfer_info = self.file_transfers[file_id]
+        filepath = transfer_info["filepath"]
+        target_user_id = transfer_info["target_user"]
+        
+        if self.verbose:
+            display_manager.log_debug(f"Starting file transfer for {file_id}")
+        
+        # Small delay to ensure the recipient is ready
+        time.sleep(0.5)
+        
+        try:
+            # Check if file exists and is readable
+            if not os.path.exists(filepath):
+                print(f"Error: File not found: {filepath}")
+                return
+            
+            with open(filepath, 'rb') as f:
+                file_data = f.read()
+            
+            if len(file_data) == 0:
+                print(f"Error: File {filepath} is empty!")
+                return
+            
+            # Split into chunks
+            chunks = []
+            for i in range(0, len(file_data), chunk_size):
+                chunk_bytes = file_data[i:i + chunk_size]
+                chunks.append(chunk_bytes)
+            
+            total_chunks = len(chunks)
+            successful_chunks = 0
+            
+            if self.verbose:
+                display_manager.log_debug(f"Sending {total_chunks} chunks for {transfer_info['filename']}")
+            
+            # Send each chunk
+            for i, chunk_bytes in enumerate(chunks):
+                # Encode chunk as base64 for transmission
+                encoded_chunk = base64.b64encode(chunk_bytes).decode('utf-8')
+                
+                msg = self.message_builder.build_file_chunk(
+                    target_user_id, file_id, i, total_chunks, len(chunk_bytes), encoded_chunk
+                )
+                
+                try:
+                    target_ip = self._find_peer_ip(target_user_id)
+                    if target_ip:
+                        self.sock.sendto(msg.encode(), (target_ip, self.PORT))
+                        successful_chunks += 1
+                        self.stats['messages_sent'] += 1
+                        
+                        if self.verbose:
+                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks}")
+                        time.sleep(0.2)  # Delay between chunks
+                    else:
+                        print(f"Error: Cannot find IP for user {target_user_id}")
+                        break
+                except Exception as e:
+                    print(f"Error: Failed to send chunk {i + 1}/{total_chunks}: {e}")
+                    break
+            
+            if successful_chunks == total_chunks:
+                print(f"File transfer of {transfer_info['filename']} completed.")
+                transfer_info["status"] = "sent"
+            else:
+                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully")
+                
+        except Exception as e:
+            print(f"Error in file transfer: {e}")
+    
+    def _cleanup_expired_file_offers(self):
+        """Mark expired file offers as ignored (called from list_file_transfers)"""
+        current_time = time.time()
+        expired_offers = []
+        
+        for file_id, offer_info in self.pending_file_offers.items():
+            if offer_info["accepted"] is None:  # Only expire pending offers
+                if current_time - offer_info["timestamp"] > self.FILE_OFFER_EXPIRATION:
+                    expired_offers.append(file_id)
+        
+        for file_id in expired_offers:
+            self.pending_file_offers[file_id]["accepted"] = False
+            if self.verbose:
+                display_manager.log_debug(f"File offer {file_id} expired after {self.FILE_OFFER_EXPIRATION} seconds - marked as ignored")
+        
+        return len(expired_offers)
+
+    # ====== ACK TIMEOUT & RETRY ======
+    def _ack_timeout_checker(self):
+        """Check for ACK timeouts and handle retries"""
+        while self.running:
+            try:
+                current_time = time.time()
+                expired_messages = []
+                
+                with self.ack_lock:
+                    for msg_id, ack_info in self.pending_acks.items():
+                        if current_time - ack_info['timestamp'] > self.ack_timeout:
+                            expired_messages.append(msg_id)
+                
+                for msg_id in expired_messages:
+                    self._handle_ack_timeout(msg_id)
+                
+                time.sleep(0.5)  # Check every 500ms
+            except Exception as e:
+                if self.running and self.verbose:
+                    display_manager.log_warning(f"Error in ACK timeout checker: {e}")
+    
+    def _handle_ack_timeout(self, message_id):
+        """Handle ACK timeout for a message"""
+        with self.ack_lock:
+            if message_id not in self.pending_acks:
+                return
+            
+            ack_info = self.pending_acks[message_id]
+            ack_info['retries'] += 1
+            
+            if ack_info['retries'] <= self.max_retries:
+                # Retry sending the message
+                try:
+                    self.sock.sendto(ack_info['message'].encode(), (ack_info['target_ip'], self.PORT))
+                    ack_info['timestamp'] = time.time()  # Update timestamp for new retry
+                    
+                    if self.verbose:
+                        display_manager.log_debug(f"Retrying message {message_id} (attempt {ack_info['retries']}/{self.max_retries})")
+                except Exception as e:
+                    if self.verbose:
+                        display_manager.log_warning(f"Failed to retry message {message_id}: {e}")
+            else:
+                # Max retries exceeded
+                if self.verbose:
+                    display_manager.log_warning(f"Max retries exceeded for message {message_id}")
+                
+                # Handle specific failure cases
+                self._handle_message_failure(message_id, ack_info)
+                
+                # Remove from pending ACKs
+                del self.pending_acks[message_id]
+
+    def _handle_message_failure(self, message_id, ack_info):
+        """Handle message failure after max retries"""
+        message = ack_info['message']
+        
+        # Parse message to determine type and handle accordingly
+        try:
+            parsed = self.message_parser.parse_message(message)
+            if parsed and parsed.message_type == MessageType.FILE_OFFER:
+                file_id = parsed.fields.get("FILEID")
+                if file_id and file_id in self.file_transfers:
+                    print(f"Failed to send file offer for {self.file_transfers[file_id]['filename']} - no response from recipient")
+                    # Clean up failed file transfer
+                    del self.file_transfers[file_id]
+            elif parsed and parsed.message_type == MessageType.FILE_CHUNK:
+                file_id = parsed.fields.get("FILEID")
+                chunk_index = parsed.fields.get("CHUNK_INDEX")
+                if file_id and chunk_index is not None:
+                    print(f"Failed to send file chunk {chunk_index} for file {file_id} - transfer may be incomplete")
+        except Exception as e:
+            if self.verbose:
+                display_manager.log_warning(f"Error handling message failure: {e}")
 
     # TODO: Check if correct
     def send_revoke(self, token):
@@ -2084,6 +3610,56 @@ class LSNPPeer:
             else:
                 print("Usage: group_update <group_id>|<group_creator> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
         # TODO: Check if working/correct
+        elif cmd == "tictactoe_invite":
+            if len(parts) > 2:
+                target_user = parts[1]
+                symbol = parts[2]
+                self.send_tictactoe_invite(target_user, symbol)
+            else:
+                print("Usage: tictactoe_invite <user_id> <symbol>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_move":
+            if len(parts) > 3:
+                game_id = parts[1] 
+                position = parts[2]
+                symbol = parts[3]
+                self.send_tictactoe_move(game_id, symbol, position)
+            else:
+                print("Usage: tictactoe_move <game_id> <symbol> <position>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_result":
+            if len(parts) > 2:
+                game_id = parts[1]
+                symbol = parts[2]
+                self.send_tictactoe_result(game_id, symbol)
+            else:
+                print("Usage: tictactoe_result <game_id> <symbol>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_invite":
+            if len(parts) > 2:
+                target_user = parts[1]
+                symbol = parts[2]
+                self.send_tictactoe_invite(target_user, symbol)
+            else:
+                print("Usage: tictactoe_invite <user_id> <symbol>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_move":
+            if len(parts) > 3:
+                game_id = parts[1] 
+                position = parts[2]
+                symbol = parts[3]
+                self.send_tictactoe_move(game_id, symbol, position)
+            else:
+                print("Usage: tictactoe_move <game_id> <symbol> <position>")
+        # TODO: Check if working/correct
+        elif cmd == "tictactoe_result":
+            if len(parts) > 2:
+                game_id = parts[1]
+                symbol = parts[2]
+                self.send_tictactoe_result(game_id, symbol)
+            else:
+                print("Usage: tictactoe_result <game_id> <symbol>")
+        # TODO: Check if working/correct
         elif cmd == "group":
             display_manager.print_groups(self.groups)
         # TODO: Check if working/correct
@@ -2182,6 +3758,7 @@ def main():
     """Main function - parse arguments and start peer"""
     username = None
     display_name = None
+    avatar_path = None
     verbose = False
     
     # Parse command line arguments
@@ -2195,6 +3772,9 @@ def main():
         elif args[i] == "--name" and i + 1 < len(args):
             display_name = args[i + 1]
             i += 2
+        elif args[i] == "--avatar" and i + 1 < len(args):
+            avatar_path = args[i + 1]
+            i += 2
         elif args[i] == "--verbose":
             verbose = True
             i += 1
@@ -2203,7 +3783,7 @@ def main():
             sys.exit(1)
     
     # Create and start peer
-    peer = LSNPPeer(username=username, display_name=display_name, verbose=verbose)
+    peer = LSNPPeer(username=username, display_name=display_name, avatar_path=avatar_path, verbose=verbose)
     peer.start() # Start threads and broadcast initial profile
     display_manager.print_startup_complete() # Print startup complete message AFTER peer starts
     
