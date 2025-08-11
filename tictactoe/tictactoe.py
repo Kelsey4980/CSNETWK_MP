@@ -52,8 +52,6 @@ class TicTacToeGame:
 
         print(bot_border)
 
-        print(f"\n")
-
         if self.end:
             if self.winner:
                 print(f"{self.winner.name} wins!\n")
@@ -98,8 +96,9 @@ class TicTacToeGame:
         if not any(' ' in row for row in self.board) and not self.check_win()[0]:
             self.winner = None
             self.end = True
+            return True
 
-        return self.end
+        return False
 
     '''
         Checks the board for win conditions
