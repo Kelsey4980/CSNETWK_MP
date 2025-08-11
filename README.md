@@ -70,6 +70,10 @@
    3. **Token Handling and Scope Validation**
       - fill
    4. **Group Management**
-      - fill
+      - Users can create and be a member of multiple groups.
+      - Users can update their group to add and remove members.
+      - Users can message all the members in a specified group.
    5. **Game Support (Tic Tac Toe)**
-      - fill
+      - Users can play tic-tac-toe against other users.
+      - Multiple matches can be ongoing at the same time, made possible by utilizing unique game IDs.
+      - Users can view the result of a finished game.
