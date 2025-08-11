@@ -63,12 +63,15 @@
 ### Milestone #3
    1. **Profile Picture and Likes**
       - Avatars are stored in base64 format and are stored as data + type fields in Profile.
-      - Avatars appear in DMs and Posts
+      - Avatars appear in the default image viewer when receiving DMs and Posts
       - Likes are stored with Posts, are referred to by using a timestamp, and can be removed through Unlike.
    2. **File Transfer**
-      - fill
+      - File offers can be sent to other users.
+      - The receiving user can choose to accept or reject the file.
    3. **Token Handling and Scope Validation**
-      - fill
+      - The token field contains the user ID, TTL, and the scope.
+      - The TTL manages the expiration time of the message.
+      - The scope specifies whether the message is in a valid scope or not.
    4. **Group Management**
       - Users can create and be a member of multiple groups.
       - Users can update their group to add and remove members.
