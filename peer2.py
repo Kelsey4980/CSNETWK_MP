@@ -293,7 +293,7 @@ class LSNPPeer:
         avatar_data = None
         avatar_type = None
 
-        print("dm" self.known_peers[sender_id])
+        print("dm", self.known_peers[sender_id])
 
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
