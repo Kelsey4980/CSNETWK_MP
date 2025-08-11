@@ -953,7 +953,7 @@ class LSNPPeer:
         if not game_id in self.active_games:
             self.active_games[game_id] = self.pending_games.pop(game_id, None)
 
-        game_dict = self.active_games.get(game_id["game"], None)
+        game_dict = self.active_games.get(game_id, None)
         if game_dict:
             game = game_dict["game"]
         else:
