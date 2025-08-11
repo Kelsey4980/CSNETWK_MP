@@ -1184,7 +1184,12 @@ class LSNPPeer:
                 msg_lines = msg_data["message"].splitlines()
                 print(f"[*]")
                 for line in msg_lines:
-                    print(f"    {line}")
+                    if line.startswith("AVATAR_DATA:"):
+                        key, value = line.split(":", 1)
+                        value = value.strip()
+                        print(f"    {key}: {value[:10]}... (truncated)")
+                    else:
+                        print(f"    {line}")
                 flag = True
 
         if not flag:
