@@ -1307,8 +1307,6 @@ class LSNPPeer:
             "likers": set() # set of user_ids that liked this post
         }
 
-        print(f"Post sent: {content}")
-
     def send_dm(self, target_user_id, content):
         """Send a DM to a specific user"""
         if not content.strip():
