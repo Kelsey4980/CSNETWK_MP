@@ -1,51 +1,44 @@
 # CSNETWK_MP
 
 ## How to Run
-1. Install required package by running:  
-   ```bash
-   pip install prompt_toolkit
-   ```
-   (If pip is not recognized on Windows, use: `py -m pip install prompt_toolkit`)
-2. Run `python webserver.py` on terminal.  
-3. On a different terminal, go to test_send folder. Run `python <test_file.py>`.  
-4. Check the server terminal if the message is received.
+1. Install required package by running: `pip install prompt_toolkit`. If `pip` is not recognized on Windows, use: `py -m pip install prompt_toolkit`.
+2. Run `python lsnp_peer.py --username <username> --name <name>` on terminal. Make sure you are in root folder.
+   - `username` is attached in user ID.
+   - `name` is the display name.
+   - Additionally, you can add `--verbose` at the end to toggle verbose mode.
 
 ## Server Logic
 
 ### Milestone #1
    1. **Clean Architecture & Logging**
       - Multiple files created each serving different purpose:
-         - `webserver.py` : server proper with enhanced command interface
-         - `dictionary.py` : stores global variables
-         - `utils.py` : helper functions and legacy compatibility
+         - `lsnp_peer.py` : server proper with enhanced command interface
+         - `dictionary.py` : stores the ENUM which determines the type of messages accepted in this server
+         - `utils.py` : helper functions, mostly printing and logging
          - `message_parser.py` : comprehensive LSNP message parser and validator
+         - `message_builder.py` : comprehensive LSNP message builder, constructs the messages in a way that is accepted by the server
       - Log and other output are structured:
          - `>> [LOG]` : log messages
+         - `>> [WARNING]` : warning messages
+         - `>> [DEBUG]` : debug messages
          - Verbose and non-verbose output are in this format:
             ```
-            ============ >> PROCESSING MESSAGE << ============
+            ============ >> START OF MESSAGE << ============
                            < message here >
             ============= >> END OF MESSAGE << =============               
             ```
-      - Peer IPs and Peer Profiles can be viewed:
-         - `peer_profiles` are those who entered the server with username.
-         - `peers_IP` are peers who entered with IP address only.
-         - Peer Profiles are also in Peer IPs but Peer IPs can contain IPs that are not in Peer Profiles.
+      - Known **IPs** and known **peers** can be viewed
+         - IPs are just addresses while peers are those with user IDs.
    2. **Protocol Compliance Test Suite**
-      - **[ONGOING]** CLI and tests for crafting, parsing, and simulating LSNP messages.
+      - CLI and tests for crafting, parsing, and simulating LSNP messages.
+         - Formatted are shown after sending in verbose mode.
+         - The server already allows creating and parsing messages.
       - Comprehensive message parser supporting LSNP message types:
-         - TESTED w/ SEND_TEST and TEST_MESSAGE_PARSER
-            - PROFILE, POST
-         - LOOSELY TESTED w/ TEST_MESSAGE_PARSER
-            - DM, FOLLOW, UNFOLLOW, LIKE
-            - FILE_OFFER, FILE_CHUNK, FILE_RECEIVED
-            - GROUP_CREATE, GROUP_UPDATE, GROUP_MESSAGE
-            - GAME_START, GAME_MOVE, GAME_END
-            - ACK, PING
-      - Message validation and token authentication system. (Loosely tested)
+         - Posts, DM, Ping, Follow, Unfollow, Like, Ack
+      - Message validation and token authentication system.
       - Verbose and nonverbose modes are supported:
          - By default, it runs on nonverbose mode.
-         - `python webserver.py --verbose` activates the verbose mode.
+         - `python lsnp_peer.py --username <username> --name <name> --verbose` activates the verbose mode.
          - Runtime verbose mode toggle via `verbose` command.
    3. **Message Sending and Receiving**
       - Message sending and receiving capabilities.
@@ -57,29 +50,24 @@
       - Token validation with expiration and scope checking.
       - Debug output for invalid messages and parsing errors.
 
-# TODO for MS2: 
-- implement username and display name update commands (currently only status is updated)
-- implement POST to followers only (currently broadcasted)
-- implement discovery loop (use origin lsnp_peer as sample)
-- improve verbose and non-verbose display (refer to the RFC for non-verbose)
-- implement other message features (starting from follow)
-- consult Sir if we need to "stale" peers (for when peers disconnect, was lowkey implied in section 6 but not explicitly stated)
+### Milestone #2
+   1. **User Discovery and Presence**
+      - Functionality can be found in `def _discovery_loop(self)`
+      - Profile is pinged/broadcasted every 5 minutes
+   2. **Messaging Functionality**
+      * POST: Peers can now share posts among followers only
+      * DM: Peers can send DMs to the specified peer
+      * FOLLOW: Peers can follow other peers
+      * UNFOLLOW: Peers can unfollow other peers 
 
-# GENERAL STEPS FOR IMPLEMENTING NEW FEATURES (may vary):
-1. **message_builder.py**: Implement build_<type>() method with required fields if not yet in file
-2. **peer.py**: Add send_<type>() method to send the message
-3. **message_parser.py**: Add validation rules for the new type in _validate_message()
-4. **peer.py**: Add _handle_<type>_message() method IF you need special processing:
-   - Storage (add self.<storage> in __init__)
-   - State updates (followers, etc.)
-   - Can skip this step for simple display-only messages
-5. **peer.py**: Update _process_message() to call your handler (if created)
-6. **peer.py**: Add command in handle_command() if user-triggered
-7. **utils.py**: Update print_help() if new command added
-8. **Test!**
-
-# OTHER NOTES:
-- also added a new method for handle_log and handle_profile_message (validate_user_id_and_ip) for security (RFC Section 14)
-- ping also saves to known peers now
-- cleaned up the codebase, removed unused code in utils and dictionary
-- added a last seen for each known peer, this will make it easier to debug in the future when we implement "staling" of peers
+### Milestone #3
+   1. **Profile Picture and Likes**
+      - fill
+   2. **File Transfer**
+      - fill
+   3. **Token Handling and Scope Validation**
+      - fill
+   4. **Group Management**
+      - fill
+   5. **Game Support (Tic Tac Toe)**
+      - fill
