@@ -507,11 +507,12 @@ class LSNPPeer:
         if group_key in self.groups:
             self._update_group(group_key, members_to_add, members_to_remove)
 
+            group_name = self.groups[group_key]["name"]
+            self.message_parser.set_group_name(group_name)
+
             if self.user_id in members_to_remove:
                 del self.groups[group_key]
 
-            group_name = self.groups[group_key]["name"]
-            self.message_parser.set_group_name(group_name)
             if self.verbose:
                 display_manager.log_debug(f"'{group_name}' ({group_id}) updated its members")
 
@@ -698,7 +699,7 @@ class LSNPPeer:
             display_manager.log_debug(f"Received ACK with MESSAGE_ID={msg_id}, STATUS={status}")
 
         # store in all message sent
-        self.all_message_sent.update(self.pending_message)
+        """self.all_message_sent.update(self.pending_message)"""
         
         # First try to match by MESSAGE_ID (standard messages)
         if msg_id:
@@ -1035,7 +1036,7 @@ class LSNPPeer:
         for idx, (token, msg_data) in enumerate(self.all_message_sent.items(), start=1):
             if msg_data["type"].value == msg_type:
                 msg_lines = msg_data["message"].splitlines()
-                print(f"[{idx}]")
+                print(f"[*]")
                 for line in msg_lines:
                     print(f"    {line}")
                 flag = True
@@ -1087,8 +1088,13 @@ class LSNPPeer:
         token = fields.get("TOKEN")
 
         # reset pending_message
-        self.pending_message = {}
+        """self.pending_message = {}
         self.pending_message[token] = {
+            "message": msg,
+            "type": msg_type
+        }"""
+        # save all sent messages
+        self.all_message_sent[token] = {
             "message": msg,
             "type": msg_type
         }
@@ -2160,7 +2166,7 @@ class LSNPPeer:
         elif cmd == "verbose":
             self.verbose = not self.verbose
             self.message_parser.verbose_mode = self.verbose # Update parser's verbose mode
-            print(f"Verbose mode: {'ON' if self.verbose else 'OFF'}")
+            print(f"Verbose mode: {'ON' if self.verbose else 'OFF'}\n")
         # ✅
         elif cmd == "stats":
             display_manager.print_statistics(self.stats, len(self.known_peers), len(self.known_ips))
