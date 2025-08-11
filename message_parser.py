@@ -257,7 +257,7 @@ class MessageParser:
                 if not display_name:
                     user_id = message.fields.get("USER_ID", "Unknown")
                     display_name = user_id.split('@')[0] if '@' in user_id else user_id
-                return f"{timestamp_str} {display_name}: {status}"
+                return f"\n{timestamp_str} {display_name}: {status}"
             
             elif msg_type == MessageType.POST:
                 # post: Show only the display_name (user_id if display name is not recorded) and content.
@@ -268,14 +268,14 @@ class MessageParser:
                 ttl_sec = message.fields.get("TTL")
 
                 post_time = float(timestamp) - float(ttl_sec)  # subtracts ttl from post time
-                return f"{timestamp_str}|{post_time} POST from {display_name}: {content}"
+                return f"\n{timestamp_str}|{post_time} POST from {display_name}: {content}"
             
             elif msg_type == MessageType.DM:
                 # dm: Show only the display_name (user_id if display name is not recorded) and content
                 sender_user_id = message.fields.get("FROM")
                 display_name = message.get_display_name(peer_profiles)
                 content = message.fields.get("CONTENT", "")
-                return f"{timestamp_str} DM from {display_name}: {content}"
+                return f"\n{timestamp_str} DM from {display_name}: {content}"
             
             elif msg_type == MessageType.PING:
                 # ping: do not display anything
@@ -291,7 +291,7 @@ class MessageParser:
                 post_timestamp = message.fields.get("POST_TIMESTAMP")
                 sender_display_name = message.get_display_name(peer_profiles)
 
-                return f"{timestamp_str} {sender_display_name} likes your post [{post_timestamp}]"
+                return f"\n{timestamp_str} {sender_display_name} likes your post [{post_timestamp}]"
             
             elif msg_type == MessageType.UNLIKE:
                 # final: “alice likes your post [post y message]”
@@ -299,27 +299,27 @@ class MessageParser:
                 post_timestamp = message.fields.get("POST_TIMESTAMP")
                 sender_display_name = message.get_display_name(peer_profiles)
 
-                return f"{timestamp_str} {sender_display_name} unlikes your post [{post_timestamp}]"
+                return f"\n{timestamp_str} {sender_display_name} unlikes your post [{post_timestamp}]"
             
             elif msg_type == MessageType.FOLLOW:
                 # final: “User alice has followed you”
                 follower_user_id = message.fields.get("FROM")
                 follower_display_name = message.get_display_name(peer_profiles)
 
-                return f"{timestamp_str} User {follower_display_name} has followed you"
+                return f"\n{timestamp_str} User {follower_display_name} has followed you"
             
             elif msg_type == MessageType.UNFOLLOW:
                 # final: “User alice has unfollowed you”
                 follower_user_id = message.fields.get("FROM")
                 follower_display_name = message.get_display_name(peer_profiles)
 
-                return f"{timestamp_str} User {follower_display_name} has unfollowed you"
+                return f"\n{timestamp_str} User {follower_display_name} has unfollowed you"
             
             elif msg_type == MessageType.GROUP_CREATE:
                 # final: "You’ve been added to Trip Buddies"
                 group_name = message.fields.get("GROUP_NAME")
 
-                return f"{timestamp_str} You've been added to {group_name}"
+                return f"\n{timestamp_str} You've been added to {group_name}"
             
             elif msg_type == MessageType.GROUP_MESSAGE:
                 # final: "bob@192.168.1.12 sent “Just uploaded the photos!”
@@ -327,13 +327,13 @@ class MessageParser:
                 content = message.fields.get("CONTENT")
                 group_id = message.fields.get("GROUP_ID")
 
-                return f"{timestamp_str} -- {group_id} {sender} sent \"{content}\""
+                return f"\n{timestamp_str} -- {group_id} {sender} sent \"{content}\""
             
             elif msg_type == MessageType.GROUP_UPDATE:
                 # final: The group “Trip Buddies” member list was updated.
                 group_name = message.fields.get("GROUP_NAME")
 
-                return f"{timestamp_str} The group \"{group_name}\" member list was updated."
+                return f"\n{timestamp_str} The group \"{group_name}\" member list was updated."
             
             elif msg_type == MessageType.REVOKE:
                 # final: do not display anything (handled by verbose log in LSNPPeer)
@@ -345,7 +345,7 @@ class MessageParser:
                 filename = message.fields.get("FILENAME", "")
                 file_id = message.fields.get("FILEID", "")
                 description = message.fields.get("DESCRIPTION", "")
-                return f"{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n        File ID: {file_id}\n        Description: {description}\n        NOTE: Use 'accept_file {file_id}' to accept or 'ignore_file {file_id}' to ignore."
+                return f"\n{timestamp_str} User {display_name} is sending you a file ({filename}) do you accept? \n        File ID: {file_id}\n        Description: {description}\n        NOTE: Use 'accept_file {file_id}' to accept or 'ignore_file {file_id}' to ignore."
 
             elif msg_type == MessageType.FILE_CHUNK:
                 # Do not print anything until all chunks are completed

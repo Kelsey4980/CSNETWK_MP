@@ -878,19 +878,22 @@ class LSNPPeer:
 
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
-            group = self.groups.get(group_key)
-            current_members = set(group["members"])
+        group = self.groups.get(group_key)
+        current_members = set(group["members"])
+        if not group:
+            print(f"Group '{group_key}' not found.")
+            return
 
-            # add
-            for member in members_to_add:
-                if member and member not in current_members:
-                    current_members.add(member)
-            # remove
-            for member in members_to_remove:
-                current_members.discard(member)
+        # add
+        for member in members_to_add:
+            if member and member not in current_members:
+                current_members.add(member)
+        # remove
+        for member in members_to_remove:
+            current_members.discard(member)
 
-            # update
-            self.groups[group_key]["members"] = list(current_members)
+        # update
+        self.groups[group_key]["members"] = list(current_members)
 
     def _log_ip(self, ip_address):
         """Log and store IP address - logging itself is now conditional on verbose"""
@@ -1238,7 +1241,7 @@ class LSNPPeer:
                 self.groups[group_key] = {
                     "id": group_id,
                     "name": group_name,
-                    "members": target_users,
+                    "members": all_members,
                     "creator": self.user_id
                 }
 
@@ -1251,7 +1254,6 @@ class LSNPPeer:
                 print(f"Members:")
                 for user_id in all_members:
                     print(f"\t{user_id}")
-                print()
             else:
                 print("Group not created. Please make sure members are known.")
         else:
@@ -1310,7 +1312,7 @@ class LSNPPeer:
                 self.send_message_to_peer(user_id, msg)
 
             # update local group
-            self._update_group(group_id, members_to_add, members_to_remove)
+            self._update_group(group_key, members_to_add, members_to_remove)
 
             print(f"{group_id} updated.")
         else:
@@ -2033,7 +2035,7 @@ class LSNPPeer:
 
                 self.send_group_update(group_key, add, remove)
             else:
-                print("Usage: group_update <group_id> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
+                print("Usage: group_update <group_id>|<group_creator> -add <add_member1,add_member2> -remove <remove_member1,remove_member2>")
         # TODO: Check if working/correct
         elif cmd == "group":
             display_manager.print_groups(self.groups)
