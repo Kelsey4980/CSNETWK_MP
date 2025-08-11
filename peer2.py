@@ -1330,6 +1330,8 @@ class LSNPPeer:
             group = self.groups[matching_key]
 
             target_users = group["members"]
+            target_users = [user for user in target_users if user != self.user_id]
+
             msg = self.message_builder.build_group_update(group_id, add_members, remove_members, current_time)
             self.save_sent_messages(msg)
 
@@ -1344,16 +1346,14 @@ class LSNPPeer:
             self._update_group(group_key, members_to_add, members_to_remove)
 
             # send group_create to members to add so that they will have a copy of group_name and members
-            if members_to_add:
-                group_name = group["group_name"]
+            """if members_to_add:
+                group_name = group["name"]
                 group_members = group["members"]
                 msg = self.message_builder.build_group_create(group_id, group_name, group_members, current_time)
                 self.save_sent_messages(msg)
 
-                print(msg)
-
                 for members in members_to_add:
-                    self.send_message_to_peer(members, msg)
+                    self.send_message_to_peer(members, msg)"""
 
             print(f"{group_id} updated.")
         else:
