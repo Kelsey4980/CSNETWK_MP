@@ -362,9 +362,6 @@ class LSNPPeer:
         self._update_peer_info(user_id, display_name, avatar_data, avatar_type, parsed_message.sender_ip, status)
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
-
-        # Send revocation list
-        """self._send_revocation_list_to_peer(user_id)"""
     
     def _handle_ping_message(self, parsed_message):
         """Handle PING messages for peer discovery"""
@@ -378,9 +375,6 @@ class LSNPPeer:
         self._update_peer_ping(user_id, parsed_message.sender_ip)
         # Log the IP address
         self._log_ip(parsed_message.sender_ip)
-
-        # Send revocation list
-        """self._send_revocation_list_to_peer(user_id)"""
     
     def _handle_dm_message(self, parsed_message):
         sender_id = (parsed_message.fields.get("FROM"))
@@ -628,7 +622,18 @@ class LSNPPeer:
         
         # Update peer info
         sender_username = sender_id.split('@')[0]
-        self._update_peer_info(sender_id, sender_username, parsed_message.sender_ip)
+        
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
+
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, parsed_message.sender_ip)
         self._log_ip(parsed_message.sender_ip)
         
         if self.verbose:
@@ -849,7 +854,17 @@ class LSNPPeer:
         
         # Update peer info
         sender_username = sender_id.split('@')[0]
-        self._update_peer_info(sender_id, sender_username, parsed_message.sender_ip)
+
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, parsed_message.sender_ip)
         self._log_ip(parsed_message.sender_ip)
         
         if self.verbose:
@@ -871,7 +886,16 @@ class LSNPPeer:
         self.pending_games[game_id] = {"game": game, "last_activity": time.time()}
 
         # Update peer info
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
 
@@ -917,7 +941,16 @@ class LSNPPeer:
         self.active_games[game_id]["last_activity"] = time.time()
 
         # Update peer info
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
 
@@ -927,7 +960,16 @@ class LSNPPeer:
         sender_username = sender_id.split('@')[0]
 
         # Update peer info
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
 
@@ -1022,6 +1064,7 @@ class LSNPPeer:
             # Preserve existing info, just update timestamp and potentially IP
             old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
             self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
+
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
         group = self.groups.get(group_key)
@@ -1078,7 +1121,16 @@ class LSNPPeer:
         sender_ip = self._find_peer_ip(sender_id)
         sender_username = sender_id.split('@')[0]
 
-        self._update_peer_info(sender_id, sender_username, sender_ip)
+        avatar_data = None
+        avatar_type = None
+
+        if sender_id in self.known_peers:
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+        if avatar_data and avatar_type:
+            display_manager.show_avatar(avatar_data, avatar_type)
+
+        self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         self._log_ip(sender_ip)
 
         # save groups
@@ -1089,19 +1141,20 @@ class LSNPPeer:
             username = user.split("@")[0]
             ip_add = self._find_peer_ip(user)
 
-            self._update_peer_info(user, username, ip_add)
+            avatar_data = None
+            avatar_type = None
+
+            if sender_id in self.known_peers:
+                _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
+
+            if avatar_data and avatar_type:
+                display_manager.show_avatar(avatar_data, avatar_type)
+
+            self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, ip_add)
             self._log_ip(ip_add)
 
         if self.verbose:
             display_manager.log_debug(f"Known peers updated with the members of '{group_name}' ({group_id})")
-
-    # happens backend; just syncs all of the revoked tokens
-    """def _send_revocation_list_to_peer(self, peer_id):
-        now = time.time()
-        TTL = 3600  # example TTL
-            
-        msg = self.message_builder.build_revoke(self.revoked_tokens_self )
-        self.send_message_to_peer(peer_id, msg)"""
     
     # Removes expired and revoked tokens
     def clean_messages(self):
