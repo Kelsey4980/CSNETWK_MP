@@ -52,13 +52,12 @@ class TicTacToeGame:
 
         print(bot_border)
 
-        if self.end:
-            if self.winner:
-                print(f"{self.winner.name} wins!\n")
-            elif self.check_draw():
-                print("It's a draw!\n")
-            else:
-                print("The game has ended without a winner.\n")
+        if self.check_win()[0]:
+            print(f"{self.winner.name} wins!\n")
+        elif self.check_draw():
+            print("It's a draw!\n")
+        elif self.end:
+            print("The game has ended without a winner.\n")
             
 
     '''

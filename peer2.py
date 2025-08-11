@@ -1345,6 +1345,8 @@ class LSNPPeer:
             self.send_message_to_peer(target_user_id, msg)
             print(f"\nYou played: {symbol} at position {position}")
             game.print_board()
+            if game.end:
+                print(f"\nGame with {target_username} is over. Use command 'tictactoe_result' for a more detailed summary of the results\n")
         else:
             print(f"User {target_user_id} not found.")
     
