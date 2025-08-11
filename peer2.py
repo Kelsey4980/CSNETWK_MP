@@ -409,16 +409,12 @@ class LSNPPeer:
         user_id = parsed_message.fields.get("USER_ID")
         content = parsed_message.fields.get("CONTENT")
 
-        print("received post", user_id, content)
-
         self.received_posts[current_time] = {
             "token": token,
             "user_id": user_id,
             "content": content,
             "liking": False
         }
-
-        print("list of posts", self.received_posts)
 
     # TODO: Check if correct. also might need to add the verbose stuff
     def _handle_likes(self, parsed_message):
