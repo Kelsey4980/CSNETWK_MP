@@ -1,3 +1,13 @@
+"""
+    SUBMITTED BY:
+        CHING, Justin
+        CHUA, Hanielle
+        KELSEY, Gabrielle
+        TOLENTINO, Hephzi
+
+    CSNETWK S15
+"""
+
 # ====== Import Modules
 from socket import *
 import sys

@@ -1,3 +1,13 @@
+"""
+    SUBMITTED BY:
+        CHING, Justin
+        CHUA, Hanielle
+        KELSEY, Gabrielle
+        TOLENTINO, Hephzi
+
+    CSNETWK S15
+"""
+
 from enum import Enum
 
 class MessageType(Enum):

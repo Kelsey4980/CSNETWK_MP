@@ -1,3 +1,13 @@
+"""
+    SUBMITTED BY:
+        CHING, Justin
+        CHUA, Hanielle
+        KELSEY, Gabrielle
+        TOLENTINO, Hephzi
+
+    CSNETWK S15
+"""
+
 import time
 import secrets
 from typing import Optional, Dict, Any

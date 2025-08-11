@@ -1,3 +1,13 @@
+"""
+    SUBMITTED BY:
+        CHING, Justin
+        CHUA, Hanielle
+        KELSEY, Gabrielle
+        TOLENTINO, Hephzi
+
+    CSNETWK S15
+"""
+
 import time
 from dictionary import MESSAGE_TYPE_TO_SCOPE, MessageType, MessageScope 
 from utils import display_manager
