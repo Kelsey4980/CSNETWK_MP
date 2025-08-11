@@ -778,8 +778,6 @@ class LSNPPeer:
                     
                     del self.pending_acks[msg_id]
                     return
-                elif self.verbose:
-                    display_manager.log_debug(f"Received ACK for unknown message {msg_id}")
         
         # If MESSAGE_ID didn't match, try to match by FILEID for file-related ACKs
         # The ACK might be using FILEID instead of MESSAGE_ID
@@ -820,9 +818,6 @@ class LSNPPeer:
                         daemon=True
                     ).start()
             return
-        
-        if self.verbose:
-            display_manager.log_debug(f"Could not match ACK to any pending message or file transfer")
 
         # Fix for _handle_file_offer_message method
         """Handle FILE_OFFER messages with automatic acceptance/ignoring"""
