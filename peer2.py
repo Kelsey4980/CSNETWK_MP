@@ -1546,13 +1546,15 @@ class LSNPPeer:
 
         # Silently reject if invite already sent
         for key, value in self.pending_games:
-            if value.get_p1().id == target_user_id or value.get_p2().id == target_user_id:
+            game = value["game"]
+            if game.get_p1().id == target_user_id or game.get_p2().id == target_user_id:
                 print(f"\nAlready sent a game invite to {target_username}. Cannot send another invite.\n")
                 return
             
         # Silently reject if already in an active game
         for key, value in self.active_games:
-            if value.get_p1().id == target_user_id or value.get_p2().id == target_user_id:
+            game = value["game"]
+            if game.get_p1().id == target_user_id or game.get_p2().id == target_user_id:
                 print(f"\nAlready in a game with {target_username}. Cannot send another invite.\n")
                 return
         
@@ -1624,7 +1626,7 @@ class LSNPPeer:
             return
         
         # Check if it is the user's turn
-        if not game.get_current_player().name == self.display_name:
+        if not game.get_current_player().id == self.user_id:
             print(f"\nIt's not your turn! Current turn: {game.get_current_player().name}\n")
             return
         
