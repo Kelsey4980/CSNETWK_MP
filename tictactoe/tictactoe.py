@@ -52,6 +52,8 @@ class TicTacToeGame:
 
         print(bot_border)
 
+        print("\n")
+
         if self.check_win()[0]:
             print(f"{self.winner.name} wins!\n")
         elif self.check_draw():
