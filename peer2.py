@@ -507,7 +507,9 @@ class LSNPPeer:
             # New peer with only USER_ID - store with minimal info
             # Use user_id part as temporary display name
             temp_display_name = user_id
-            self.known_peers[user_id] = (temp_display_name, ip, "", current_time)
+            temp_avatar_data = None
+            temp_avatar_type = None
+            self.known_peers[user_id] = (temp_display_name, temp_avatar_data, temp_avatar_type, ip, "", current_time)
             
             if self.verbose:
                 display_manager.log_new_peer(f"{temp_display_name} (ping only)", user_id, ip)
