@@ -379,7 +379,7 @@ class MessageBuilder:
         """
         game_id = self.generate_game_id()
         message_id = self.generate_message_id()
-        token = self.get_cached_token("game")
+        token = self.generate_token("game")
         timestamp = int(time.time())
         
         message_parts = [
@@ -402,7 +402,7 @@ class MessageBuilder:
         Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, POSITION, SYMBOL, TURN, TOKEN
         """
         message_id = self.generate_message_id()
-        token = self.get_cached_token("game")
+        token = self.generate_token("game")
         
         message_parts = [
             f"TYPE: TICTACTOE_MOVE",
@@ -425,7 +425,7 @@ class MessageBuilder:
         Format: TYPE, FROM, TO, GAME_ID, MESSAGE_ID, RESULT, SYMBOL, WINNING_LINE, TIMESTAMP
         """
         message_id = self.generate_message_id()
-        token = self.get_cached_token("game")
+        token = self.generate_token("game")
         timestamp = int(time.time())
         
         message_parts = [
