@@ -447,7 +447,6 @@ class LSNPPeer:
         if avatar_data and avatar_type:
             display_manager.show_avatar(avatar_data, avatar_type)
 
-
         self.received_posts[current_time] = {
             "token": token,
             "user_id": user_id,
@@ -628,10 +627,6 @@ class LSNPPeer:
 
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
-
-        if avatar_data and avatar_type:
-            display_manager.show_avatar(avatar_data, avatar_type)
-
 
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, parsed_message.sender_ip)
         self._log_ip(parsed_message.sender_ip)
@@ -861,9 +856,6 @@ class LSNPPeer:
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
 
-        if avatar_data and avatar_type:
-            display_manager.show_avatar(avatar_data, avatar_type)
-
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, parsed_message.sender_ip)
         self._log_ip(parsed_message.sender_ip)
         
@@ -891,9 +883,6 @@ class LSNPPeer:
 
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
-
-        if avatar_data and avatar_type:
-            display_manager.show_avatar(avatar_data, avatar_type)
 
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
@@ -947,9 +936,6 @@ class LSNPPeer:
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
 
-        if avatar_data and avatar_type:
-            display_manager.show_avatar(avatar_data, avatar_type)
-
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
         self._log_ip(sender_ip)
@@ -965,9 +951,6 @@ class LSNPPeer:
 
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
-
-        if avatar_data and avatar_type:
-            display_manager.show_avatar(avatar_data, avatar_type)
 
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         # Log the IP address
@@ -1127,9 +1110,6 @@ class LSNPPeer:
         if sender_id in self.known_peers:
             _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
 
-        if avatar_data and avatar_type:
-            display_manager.show_avatar(avatar_data, avatar_type)
-
         self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, sender_ip)
         self._log_ip(sender_ip)
 
@@ -1146,9 +1126,6 @@ class LSNPPeer:
 
             if sender_id in self.known_peers:
                 _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
-
-            if avatar_data and avatar_type:
-                display_manager.show_avatar(avatar_data, avatar_type)
 
             self._update_peer_info(sender_id, sender_username, avatar_data, avatar_type, ip_add)
             self._log_ip(ip_add)
