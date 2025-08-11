@@ -2400,6 +2400,52 @@ class LSNPPeer:
             print(f"Error sending message to {target_user_id}: {e}")
             return False
 
+    def send_file_offer(self, target_user_id, filepath, description=""):
+        """Send a file offer to a specific user"""
+        # Resolve the file path
+        resolved_path = self._resolve_file_path(filepath)
+        
+        if not resolved_path:
+            print(f"File not found: {filepath}")
+            if os.path.basename(filepath) == filepath:
+                print(f"  Checked default directory: {os.path.join(self.DEFAULT_FILES_DIR, filepath)}")
+            print(f"  Checked as given path: {filepath}")
+            return
+        
+        filename = os.path.basename(resolved_path)
+        filesize = os.path.getsize(resolved_path)
+        filetype = self._guess_file_type(filename)
+        
+        # Check if user exists
+        target_ip = self._find_peer_ip(target_user_id)
+        if not target_ip:
+            print(f"User {target_user_id} not found.")
+            return
+        
+        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
+        
+        # Extract file ID from the message for tracking
+        parsed_msg = self.message_parser.parse_message(msg)
+        file_id = parsed_msg.fields.get("FILEID")
+        
+        # Store file info for automatic sending (use resolved path)
+        self.file_transfers[file_id] = {
+            "filepath": resolved_path,
+            "target_user": target_user_id,
+            "filename": filename,
+            "filesize": filesize,
+            "sent_chunks": 0,
+            "status": "offered"
+        }
+        
+        # Send with ACK tracking - chunks will be sent automatically when ACK is received
+        if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
+            print(f"File offer sent to {target_user_id}: {filename} ({file_id})")
+        else:
+            # Clean up on send failure
+            if file_id in self.file_transfers:
+                del self.file_transfers[file_id]
+
     def send_file_chunks(self, file_id, chunk_size=1024):
         """Send file chunks for an accepted file transfer"""
         if file_id not in self.file_transfers:
