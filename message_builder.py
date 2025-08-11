@@ -368,9 +368,7 @@ class MessageBuilder:
             f"STATUS: {status}",
             f"TIMESTAMP: {timestamp}",
             ""
-        ]
-                ""
-            ]
+        ]            
         
         return "\n".join(message_parts)
     
