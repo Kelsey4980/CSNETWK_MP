@@ -121,7 +121,6 @@ class LSNPPeer:
         threading.Thread(target=self._listen_loop, daemon=True).start()
         threading.Thread(target=self._discovery_loop, daemon=True).start()
         threading.Thread(target=self._game_timeout_loop, daemon=True).start()
-        self.broadcast_profile()
 
     def stop(self):
         """Stop the peer"""
