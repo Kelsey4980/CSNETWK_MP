@@ -9,11 +9,14 @@ class TicTacToeGame:
     make moves, and check for a winner.
     """
 
-    def __init__(self, game_id: str, p1_name: str, p1_symbol: str, p2_name: str):
+    def __init__(self, game_id: str, p1_id: str, p1_symbol: str, p2_id: str):
         p2_symbol = "O" if p1_symbol == "X" else "X"
 
-        self.p1 = Player(p1_name, p1_symbol)
-        self.p2 = Player(p2_name, p2_symbol)
+        p1_name = p1_id.split('@')[0]
+        p2_name = p2_id.split('@')[0]
+
+        self.p1 = Player(p1_id, p1_name, p1_symbol)
+        self.p2 = Player(p2_id, p2_name, p2_symbol)
 
         self.game_id = game_id
         self.board = [[' ' for _ in range(3)] for _ in range(3)]
@@ -36,6 +39,9 @@ class TicTacToeGame:
         empty_row  = '║       ║       ║       ║'
 
         print('\n')
+
+        previous_player = self.p1 if self.current_player == self.p2 else self.p2
+        print(f'\nTurn {self.turn} - {previous_player.name} ({previous_player.symbol})')
 
         print(top_border)
 
@@ -132,6 +138,12 @@ class TicTacToeGame:
     
     def get_game_id(self):
         return self.game_id
+    
+    def get_p1(self):
+        return self.p1
+    
+    def get_p2(self):
+        return self.p2
 
     def switch_current_player(self):
         # Switch current player

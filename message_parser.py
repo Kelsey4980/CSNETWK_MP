@@ -333,8 +333,9 @@ class MessageParser:
                 sender_display_name = message.get_display_name(peer_profiles)
 
                 game_id = message.fields.get("GAME_ID")
+                symbol = "X" if message.fields.get("SYMBOL") == "O" else "O"
 
-                return f"{timestamp_str} User {sender_display_name} is inviting you to play tic-tac-toe. Game ID: {game_id}"
+                return f"{timestamp_str} User {sender_display_name} is inviting you to play tic-tac-toe. You can accept by making a move with symbol {symbol}. Game ID: {game_id}"
             
             elif msg_type == MessageType.TICTACTOE_MOVE:
                 # final: “User alice played X at position 5”
@@ -343,7 +344,7 @@ class MessageParser:
                 symbol = message.fields.get("SYMBOL")
                 position = message.fields.get("POSITION")
 
-                return f"\n{timestamp_str} User {sender_display_name} played: {symbol} at position {position}"
+                return
             
             elif msg_type == MessageType.TICTACTOE_RESULT:
                 # final: “User alice (X) won with 0,1,2” OR “You (X) won with 0,1,2” OR "The game ended in a draw"
