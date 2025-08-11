@@ -907,6 +907,7 @@ class LSNPPeer:
 
             # Initialize a new game
             game_id = fields.get("GAME_ID")
+            symbol = "X" if fields.get("SYMBOL") == "O" else "O"
             game = TicTacToeGame(game_id, target_user_id, symbol, self.user_id)
             self.active_games[game_id] = game
 
