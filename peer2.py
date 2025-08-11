@@ -293,7 +293,7 @@ class LSNPPeer:
         avatar_data = None
         avatar_type = None
         if sender_id in self.known_peers:
-            _, avatar_data, avatar_type, _, _, _ = self.known_peers[sender_id]
+            _, avatar_data, avatar_type, *rest = self.known_peers[sender_id]
 
         if avatar_data and avatar_type:
             display_manager.show_avatar(avatar_data, avatar_type)
