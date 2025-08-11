@@ -467,7 +467,7 @@ class LSNPPeer:
             return
 
         if user_id in self.known_peers:
-            old_display_name, _, _,old_ip, old_status, _ = self.known_peers[user_id]
+            old_display_name, _, _, old_ip, old_status, _ = self.known_peers[user_id]
 
             name_changed = display_name != old_display_name
             status_changed = status != old_status
@@ -498,8 +498,8 @@ class LSNPPeer:
         
         if user_id in self.known_peers:
             # Preserve existing display_name and status, update IP and timestamp
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
+            old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
             
             if self.verbose and ip != old_ip:
                 display_manager.log_warning(f"IP changed for {user_id}: {old_ip} -> {ip}")
@@ -522,8 +522,8 @@ class LSNPPeer:
         
         if user_id in self.known_peers:
             # Preserve existing info, just update timestamp and potentially IP
-            old_display_name, old_ip, old_status, _ = self.known_peers[user_id]
-            self.known_peers[user_id] = (old_display_name, ip, old_status, current_time)
+            old_display_name, old_avatar_data, old_avatar_type, old_ip, old_status, _ = self.known_peers[user_id]
+            self.known_peers[user_id] = (old_display_name, old_avatar_data, old_avatar_type, ip, old_status, current_time)
 
     def _update_group(self, group_key, members_to_add, members_to_remove):
         # update locally for the sender
