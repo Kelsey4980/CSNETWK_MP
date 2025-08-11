@@ -12,7 +12,7 @@
 ### Milestone #1
    1. **Clean Architecture & Logging**
       - Multiple files created each serving different purpose:
-         - `lsnp_peer.py` : server proper with enhanced command interface
+         - `peer2.py` : server proper with enhanced command interface
          - `dictionary.py` : stores the ENUM which determines the type of messages accepted in this server
          - `utils.py` : helper functions, mostly printing and logging
          - `message_parser.py` : comprehensive LSNP message parser and validator
