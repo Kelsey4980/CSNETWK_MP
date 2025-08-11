@@ -361,6 +361,8 @@ class MessageParser:
                     return f"{timestamp_str} You ({current_user_symbol}) won with {winning_line}"
                 elif result == "DRAW":
                     return f"{timestamp_str} The game ended in a draw"
+                elif result == "FORFEIT":
+                    return f"{timestamp_str} The game was forefeited"
             
             else:
                 # Default for unknown or unhandled types in non-verbose, or messages not meant for display
