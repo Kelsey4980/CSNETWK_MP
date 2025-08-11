@@ -119,24 +119,28 @@ class TicTacToeGame:
             if self.board[i][0] == self.board[i][1] == self.board[i][2] != ' ':
                 winning_line = (i * 3 + 0, i * 3 + 1, i * 3 + 2)
                 self.winner = self.p1 if self.board[i][0] == self.p1.symbol else self.p2
+                self.end = True
                 return True, winning_line, self.board[i][0]
             
             # Vertical
             if self.board[0][i] == self.board[1][i] == self.board[2][i] != ' ':
                 winning_line = (i, 3 + i, 6 + i)
                 self.winner = self.p1 if self.board[0][i] == self.p1.symbol else self.p2
+                self.end = True
                 return True, winning_line, self.board[0][i]
             
         # Diagonal Left
         if self.board[0][0] == self.board[1][1] == self.board[2][2] != ' ':
             winning_line = (0, 4, 8)
             self.winner = self.p1 if self.board[0][0] == self.p1.symbol else self.p2
+            self.end = True
             return True, winning_line, self.board[0][0]
         
         # Diagonal Right
         if self.board[0][2] == self.board[1][1] == self.board[2][0] != ' ':
             winning_line = (2, 4, 6)
             self.winner = self.p1 if self.board[0][2] == self.p1.symbol else self.p2
+            self.end = True
             return True, winning_line, self.board[0][2]
         
         return False, None, None

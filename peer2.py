@@ -1215,9 +1215,9 @@ class LSNPPeer:
                 
         for game_id in to_remove:
             game_dict = self.active_games.get(game_id)
-            game_dict["game"].end = True
-            to_remove.pop(game_id)
-            print(f"\nGame {game_id} timed out due to inactivity.\n")
+            if not game_dict["game"].end:
+                game_dict["game"].end = True
+                print(f"\nGame {game_id} timed out due to inactivity.\n")
 
     def _game_timeout_loop(self, timeout_seconds=120, interval=30):
         while self.running:
