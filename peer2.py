@@ -561,7 +561,7 @@ class LSNPPeer:
             return user_id
         
         peer = self.known_peers.get(user_id)
-        return peer[1] if peer else None
+        return peer[3] if peer else None
     
     def _save_group_peers(self, parsed_message):
         group_name = parsed_message.fields.get("GROUP_NAME")

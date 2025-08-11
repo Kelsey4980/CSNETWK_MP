@@ -113,6 +113,7 @@ class MessageBuilder:
         Build a DM (Direct Message) message
         Format: TYPE, FROM, TO, CONTENT, TIMESTAMP, MESSAGE_ID, TOKEN
         """
+
         message_id = self.generate_message_id()
         token = self.get_cached_token("direct")
         timestamp = int(time.time())
@@ -133,7 +134,7 @@ class MessageBuilder:
             message_parts.append(f"AVATAR_TYPE: {self.avatar_type}")
             message_parts.append(f"AVATAR_ENCODING: base64")
             message_parts.append(f"AVATAR_DATA: {self.avatar_data}")
-        
+
         return "\n".join(message_parts)
     
     def build_follow(self, to_user_id: str) -> str:
