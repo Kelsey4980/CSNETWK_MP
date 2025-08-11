@@ -198,13 +198,6 @@ class LSNPPeer:
                 
                 # Send ACK for messages that need it (right now it is just ACK because not sure about PING and PROFILE)
                 no_ack_types = {MessageType.ACK, MessageType.FILE_OFFER}
-                
-
-                no_ack_types = {
-                    MessageType.ACK,
-                    MessageType.PING,
-                    MessageType.PROFILE 
-                }
 
                 if msg_id and msg_type not in no_ack_types:
                     ack = self.message_builder.build_ack(msg_id, "RECEIVED")
