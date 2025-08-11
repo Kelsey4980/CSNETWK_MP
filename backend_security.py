@@ -41,8 +41,8 @@ class BackendSecurity:
                
                # [3] check if revoked
                if token in self.revoked_tokens_self or token in self.revoked_tokens_others:
-                    display_manager.log_debug(f"You have received a token that has been revoked: {token}")
-                    display_manager.log_debug(f"Message from {user_id} is rejected.")
+                    display_manager.log_debug(f"A token has been revoked: {token}")
+                    display_manager.log_debug(f"Message from {user_id} is removed/rejected.")
                     return False
                
                return True

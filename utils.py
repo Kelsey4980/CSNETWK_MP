@@ -68,7 +68,7 @@ class DisplayManager:
     def print_known_peers(self, known_peers: Dict[str, Tuple[str, str, str, float]]):
         """Print all known peers"""
         if not known_peers:
-            print("\n--- No Known Peers ---\n")
+            print("\n--- No Known Peers ---")
             return
 
         print("\n--- Known Peers ---")
@@ -76,18 +76,18 @@ class DisplayManager:
             last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_seen))
             status_text = f": {status}" if status else ""
             print(f"{display_name} ({user_id}) @ {ip}{status_text} | Last seen: {last_seen_str}")
-        print("-------------------\n")
+        print("-------------------")
 
     def print_known_ips(self, known_ips: Set[str]):
         """Print all known IP addresses"""
         if not known_ips:
-            print("\n--- No Known IPs ---\n")
+            print("\n--- No Known IPs ---")
             return
         
         print("\n--- Known IPs ---")
         for ip in sorted(known_ips):
             print(f"{ip}")
-        print("-------------------\n")
+        print("-------------------")
     
     def print_peer_info(self, user_id: str, display_name: str, local_ip: str, 
                         status: str, known_peers_count: int, known_ips_count: int, verbose: bool):

@@ -65,7 +65,10 @@ class LSNPPeer:
         # -- Message Storage
         self.posts = {} # posts you sent, used for storing likes
         self.received_posts = {} # posts you received, used for sending likes/unlikes
-        self.all_message = {}
+        self.all_message_sent = {}
+        self.all_message_received = {}
+
+        self.pending_message = {}
 
         # -- File Sending
         self.file_transfers = {}  # file_id -> file_info
@@ -87,7 +90,7 @@ class LSNPPeer:
         # Message handling ✅
         self.message_builder = MessageBuilder(self.user_id, self.display_name)
         self.message_parser = MessageParser(verbose_mode=self.verbose)
-        self.backend_security = BackendSecurity(self.revoked_tokens_self, self.revoked_tokens_others) # [TO UPDATE] not yet used
+        self.backend_security = BackendSecurity(self.revoked_tokens_self, self.revoked_tokens_others)
         
         # Statistics ✅
         self.stats = {
@@ -177,7 +180,7 @@ class LSNPPeer:
                     self.sock.sendto(ack.encode(), (addr[0], self.PORT))
 
                     token = parsed_message.fields.get("TOKEN")
-                    self.all_message[token] = {
+                    self.all_message_received[token] = {
                         "message": parsed_message,
                         "type": msg_type
                     }
@@ -516,14 +519,14 @@ class LSNPPeer:
         # check if token is already revoked
         if token in self.revoked_tokens_others:
             if self.verbose:
-                display_manager.log_debug(f"Received REVOKE for an already revoked token: {token}")
+                display_manager.log_debug(f"Received REVOKE for an already revoked token: {token}\n")
             return
 
         # add to revoked_tokens_others list
         self.revoked_tokens_others.append(token)
 
         # clean up all messages
-        self.all_message.pop(token, None)
+        self.all_message_received.pop(token, None)
 
         if self.verbose:
             display_manager.log_debug(f"Token revoked by peer: {token}")
@@ -666,6 +669,9 @@ class LSNPPeer:
         
         if self.verbose:
             display_manager.log_debug(f"Received ACK with MESSAGE_ID={msg_id}, STATUS={status}")
+
+        # store in all message sent
+        self.all_message_sent.update(self.pending_message)
         
         # First try to match by MESSAGE_ID (standard messages)
         if msg_id:
@@ -746,7 +752,7 @@ class LSNPPeer:
         if self.verbose:
             display_manager.log_debug(f"Could not match ACK to any pending message or file transfer")
 
-    # Fix for _handle_file_offer_message method
+        # Fix for _handle_file_offer_message method
         """Handle FILE_OFFER messages with automatic acceptance/ignoring"""
         sender_id = parsed_message.fields.get("FROM")
         file_id = parsed_message.fields.get("FILEID")
@@ -945,21 +951,33 @@ class LSNPPeer:
         msg = self.message_builder.build_revoke(self.revoked_tokens_self )
         self.send_message_to_peer(peer_id, msg)"""
     
+    # Removes expired and revoked tokens
     def clean_messages(self):
+        # clean received messages
         tokens_to_remove = []
-        for token, msg_data in self.all_message.items():
+        for token, msg_data in self.all_message_received.items():
             if not self.backend_security.is_token_valid(token, msg_data["type"]):
                 tokens_to_remove.append(token)
 
         for token in tokens_to_remove:
-            del self.all_message[token]
+            del self.all_message_received[token]
+
+
+        """tokens_to_remove = []
+        for token, msg_data in self.all_message_sent.items():
+            if not self.backend_security.is_token_valid(token, msg_data["type"]):
+                tokens_to_remove.append(token)
+
+        for token in tokens_to_remove:
+            del self.all_message_sent[token]"""
     
-    def print_msg_by_type(self, msg_type):
+    # Prints received messages
+    def print_received_by_type(self, msg_type):
         self.clean_messages()
         flag = False
 
         msg_type = msg_type.upper()
-        for token, msg_data in list(self.all_message.items()):
+        for token, msg_data in list(self.all_message_received.items()):
             if msg_data["type"].value == msg_type:
                 parsed_message = msg_data["message"]
                 formatted_output = self.message_parser.format_message_output(
@@ -968,12 +986,29 @@ class LSNPPeer:
                     self.verbose
                 )
                 print(formatted_output)
+                print()
 
                 flag = True
 
         if not flag:
-            if self.verbose:
-                display_manager.log_warning(f"No messages active.")
+            print("No messages received")
+
+    # Prints sent messages
+    def print_sent_by_type(self, msg_type):
+        self.clean_messages()
+        flag = False
+
+        msg_type = msg_type.upper()
+        for idx, (token, msg_data) in enumerate(self.all_message_sent.items(), start=1):
+            if msg_data["type"].value == msg_type:
+                msg_lines = msg_data["message"].splitlines()
+                print(f"[{idx}]")
+                for line in msg_lines:
+                    print(f"    {line}")
+                flag = True
+
+        if not flag:
+            print("No messages sent")
 
     def view_posts(self):
         now = time.time()
@@ -1007,6 +1042,24 @@ class LSNPPeer:
         # view all posts
         display_manager.print_posts(self.posts, self.received_posts)
 
+    def save_sent_messages(self, msg):
+        fields = {}
+        for line in msg.splitlines():
+            if ": " in line:
+                key, value = line.split(": ", 1)
+                fields[key.strip()] = value.strip()
+
+        msg_type = fields.get("TYPE")
+        msg_type = MessageType(msg_type) if msg_type in MessageType._value2member_map_ else MessageType.UNKNOWN
+        token = fields.get("TOKEN")
+
+        # reset pending_message
+        self.pending_message = {}
+        self.pending_message[token] = {
+            "message": msg,
+            "type": msg_type
+        }
+
     # ====== MESSAGE SENDING ======
     def send_message_to_peer(self, user_id, message):
         """Send a message to a specific peer using their user_id"""
@@ -1031,6 +1084,7 @@ class LSNPPeer:
             return
 
         msg = self.message_builder.build_post(content, ttl_seconds)
+        self.save_sent_messages(msg)
         parsed_msg = self.message_parser.parse_message(msg)
         token = parsed_msg.fields.get("TOKEN")
         current_time_with_ttl = parsed_msg.fields.get("TOKEN").split("|")[1] # gets 2nd part of token
@@ -1077,6 +1131,7 @@ class LSNPPeer:
         
         if target_ip:
             msg = self.message_builder.build_dm(target_user_id, content)
+            self.save_sent_messages(msg)
             self.send_message_to_peer(target_user_id, msg)
             print(f"DM sent to {target_user_id}: {content}")
         else:
@@ -1093,6 +1148,7 @@ class LSNPPeer:
 
         if target_ip:
             msg = self.message_builder.build_follow(target_user_id)
+            self.save_sent_messages(msg)
             self.send_message_to_peer(target_user_id, msg)
             self.following.add(target_user_id)  # Add to following set
             print(f"You are now following {target_user_id}")
@@ -1106,6 +1162,7 @@ class LSNPPeer:
         if target_ip:
             if target_user_id in self.following:
                 msg = self.message_builder.build_unfollow(target_user_id)
+                self.save_sent_messages(msg)
                 self.send_message_to_peer(target_user_id, msg)
                 self.following.remove(target_user_id)
                 print(f"You have unfollowed {target_user_id}")
@@ -1124,6 +1181,7 @@ class LSNPPeer:
             if user_id in self.following:
                 if not self.received_posts[post_timestamp]["liking"]:
                     msg = self.message_builder.build_like(user_id, post_timestamp)
+                    self.save_sent_messages(msg)
                     self.send_message_to_peer(user_id, msg)
 
                     self.received_posts[post_timestamp]["liking"] = True # turns like state to true
@@ -1146,6 +1204,7 @@ class LSNPPeer:
 
             if self.received_posts[post_timestamp]["liking"]:
                 msg = self.message_builder.build_unlike(user_id, post_timestamp)
+                self.save_sent_messages(msg)
                 self.send_message_to_peer(user_id, msg)
 
                 self.received_posts[post_timestamp]["liking"] = False
@@ -1173,6 +1232,7 @@ class LSNPPeer:
             # target users must be known
             if all(user in peer_ids for user in target_users):
                 msg = self.message_builder.build_group_create(group_id, group_name, group_members, current_time)
+                self.save_sent_messages(msg)
 
                 # see if they are included in the list
                 self.groups[group_key] = {
@@ -1215,6 +1275,7 @@ class LSNPPeer:
             target_users = [user for user in target_users if user != self.user_id]
 
             msg = self.message_builder.build_group_message(group_id, content, current_time)
+            self.save_sent_messages(msg)
 
             for user_id in target_users:
                 self.send_message_to_peer(user_id, msg)
@@ -1242,6 +1303,7 @@ class LSNPPeer:
 
             target_users = group["members"]
             msg = self.message_builder.build_group_update(group_id, add_members, remove_members, current_time)
+            self.save_sent_messages(msg)
 
             # send to all users listed
             for user_id in target_users:
@@ -1275,12 +1337,27 @@ class LSNPPeer:
 
         # add token to self-revoked list
         self.revoked_tokens_self.append(token)
-        msg = self.message_builder.build_revoke(token)
+        msg_revoke = self.message_builder.build_revoke(token)
+        self.save_sent_messages(msg_revoke)
 
-        # broadcast to all known peers
-        # [TO UPDATE] clarify scope 
-        for peer_id in self.known_peers:
-            self.send_message_to_peer(peer_id, msg)
+        original_msg_data = self.all_message_sent.get(token)
+        if original_msg_data:
+            original_msg_str = original_msg_data["message"]
+            to_field = None
+            for line in original_msg_str.splitlines():
+                if line.startswith("TO: "):
+                    to_field = line[4:].strip()
+                    break
+            
+            if to_field:
+                # Send revoke only to that peer
+                self.send_message_to_peer(to_field, msg_revoke)
+            else:
+                # broadcast to all
+                for peer_id in self.known_peers:
+                    self.send_message_to_peer(peer_id, msg_revoke)
+        else:
+            print(f"No record of sent message with token: {token}")
 
         print(f"Revoked token: {token}")
     
@@ -2012,13 +2089,25 @@ class LSNPPeer:
             print(self.revoked_tokens_self)
             print(self.revoked_tokens_others)
 
-        elif cmd == "print_all":
+        elif cmd == "print_all_received":
             if len(parts) > 1:
                 type = parts[1]
-                print(f"All messages:")
-                self.print_msg_by_type(type)
+                print("\n\n==========================================\n")
+                print(f"ALL MESSAGES RECEIVED:")
+                self.print_received_by_type(type)
+                print("\n==========================================\n")
             else:
-                print("Usage: print_all <MESSAGE_TYPE>")
+                print("Usage: print_all_received <MESSAGE_TYPE>")
+
+        elif cmd == "print_all_sent":
+            if len(parts) > 1:
+                type = parts[1]
+                print("\n\n==========================================\n")
+                print(f"ALL MESSAGES SENT:")
+                self.print_sent_by_type(type)
+                print("\n==========================================\n")
+            else:
+                print("Usage: print_all_received <MESSAGE_TYPE>")
 
         # ✅; ongoing, to be applied in all features
         elif cmd == "verbose":
@@ -2074,7 +2163,7 @@ def main():
     with patch_stdout():
         while True:
             try:
-                cmd = session.prompt("> ")
+                cmd = session.prompt("\n> ")
                 peer.handle_command(cmd)
             except (KeyboardInterrupt, EOFError):
                 peer.stop()

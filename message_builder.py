@@ -32,7 +32,7 @@ class MessageBuilder:
         expiry = int(time.time()) + ttl_seconds
         token = f"{self.user_id}|{expiry}|{scope}"
         
-        print(f"[DEBUG] Generated token for {scope}: {token}, expires at {time.ctime(expiry)}")
+        print(f"\n[DEBUG] Generated token for {scope}: {token}, expires at {time.ctime(expiry)}")
         return token
     
     def build_profile(self, status: str = "") -> str:
