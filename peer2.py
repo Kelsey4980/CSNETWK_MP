@@ -176,9 +176,8 @@ class LSNPPeer:
                 msg_type = parsed_message.message_type
                 msg_id = parsed_message.fields.get("MESSAGE_ID")
 
-
                 # Validate token for message types with TOKEN field
-                no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK, MessageType.REVOKE}
+                no_token_types = {MessageType.PROFILE, MessageType.PING, MessageType.ACK, MessageType.REVOKE, MessageType.FILE_RECEIVED}
 
                 # Validate Token
                 token_pass = True
@@ -1362,7 +1361,6 @@ class LSNPPeer:
         else:
             print(f"User {target_user_id} not found.")
 
-    # TODO: Check if correct
     def send_like(self, post_timestamp):
         """Send a LIKE to a followed user's post"""
         if post_timestamp in self.received_posts.keys():
@@ -1386,7 +1384,6 @@ class LSNPPeer:
         else:
             print(f"Post with timestamp {post_timestamp} not found.")
 
-    # TODO: Check if correct
     def send_unlike(self, post_timestamp):
         """Send an UNLIKE to a followed user's post"""
         if post_timestamp in self.received_posts.keys():
@@ -1405,19 +1402,16 @@ class LSNPPeer:
         else:
             print(f"Post with timestamp {post_timestamp} not found.")
 
-    # TODO: Check if correct
     def send_group_create(self, group_id, group_name, group_members):
         """Send a GROUP_CREATE to the members specified"""
         current_time = time.time()
 
         all_members = group_members.split(",")
         target_users = [user for user in all_members if user != self.user_id]
-        target_ips = [user.split("@")[1] for user in target_users]
         peer_ids = list(self.known_peers.keys())
         
         group_key = f"{group_id}|{self.user_id}"
 
-        # [PROBLEM] :: this only checks if the ID is in the creator's list of groups
         if group_key not in self.groups:
             # target users must be known
             if all(user in peer_ids for user in target_users):
@@ -1446,7 +1440,6 @@ class LSNPPeer:
         else:
             print(f"You created a group with a group ID {group_id} that already exists.")
 
-    # TODO: Check if correct
     def send_group_message(self, group_key, content):
         current_time = time.time()
         group_id, group_creator = group_key.split("|", 1)
@@ -1473,7 +1466,6 @@ class LSNPPeer:
         else:
             print("Group not found.")
 
-    # TODO: Check if correct
     def send_group_update(self, group_key, add_members, remove_members):
         current_time = time.time()
         members_to_add = [m.strip() for m in add_members.split(",") if m.strip()] if add_members else []
@@ -1738,37 +1730,6 @@ class LSNPPeer:
             game.print_board()
         else:
             print(f"User {target_user_id} not found.")
-
-    # TODO: Check if correct
-    def send_revoke(self, token):
-        current_time = time.time()
-
-        if token in self.revoked_tokens_self:
-            print(f"Token {token} is already revoked by you.")
-            return
-        
-        # check if the token to be revoked is a token from the sender
-        try:
-            user_part = token.split("|")[0] 
-            user_id = user_part.split("@")[0]
-        except (IndexError, ValueError):
-            print(f"Invalid token format: {token}")
-            return
-
-        if user_id != self.user_id:
-            print(f"Cannot revoke token {token} — it does not belong to you.")
-            return
-
-        # add token to self-revoked list
-        self.revoked_tokens_self.append(token)
-        msg = self.message_builder.build_revoke(token, current_time)
-
-        # broadcast to all known peers
-        # [TO UPDATE] clarify scope 
-        for peer_id in self.known_peers:
-            self.send_message_to_peer(peer_id, msg)
-
-        print(f"Revoked token: {token}")
     
     def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
         """Send a message and track it for ACK if needed"""
@@ -1895,437 +1856,6 @@ class LSNPPeer:
         except Exception as e:
             print(f"Error sending file chunks: {e}")
 
-    # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
-    def _complete_file_transfer(self, file_id):
-        """Complete file transfer"""
-        if file_id not in self.file_transfers or file_id not in self.file_chunks:
-            if self.verbose:
-                display_manager.log_warning(f"Cannot complete transfer - missing data for {file_id}")
-            return
-            
-        transfer_info = self.file_transfers[file_id]
-        chunks = self.file_chunks[file_id]
-        
-        # Check for missing chunks
-        missing_chunks = []
-        for i in range(transfer_info["total_chunks"]):
-            if i not in chunks:
-                missing_chunks.append(i)
-        
-        if missing_chunks:
-            if self.verbose:
-                display_manager.log_warning(f"Missing chunks for {file_id}: {missing_chunks}")
-            return
-        
-        # Reassemble file in correct order
-        file_data = b""
-        
-        for i in range(transfer_info["total_chunks"]):
-            try:
-                chunk_b64 = chunks[i]
-                chunk_data = base64.b64decode(chunk_b64)
-                file_data += chunk_data
-            except Exception as e:
-                if self.verbose:
-                    display_manager.log_warning(f"Error decoding chunk {i} for {file_id}: {e}")
-                return
-        
-        # Save file
-        filename = transfer_info["filename"]
-        save_path = self._get_save_path(filename)
-        
-        try:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            
-            with open(save_path, 'wb') as f:
-                f.write(file_data)
-            
-            saved_size = os.path.getsize(save_path)
-
-            # Send confirmation
-            sender_id = transfer_info["sender"]
-            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
-            self.send_message_to_peer(sender_id, msg)
-            
-            print(f"File transfer of {filename} is complete.")
-            
-        except Exception as e:
-            print(f"Error saving file {filename}: {e}")
-            return
-        
-        # Clean up
-        if file_id in self.file_transfers:
-            del self.file_transfers[file_id]
-        if file_id in self.file_chunks:
-            del self.file_chunks[file_id]
-        if file_id in self.pending_file_offers:
-            del self.pending_file_offers[file_id]
-
-    def _make_safe_filename(self, filename):
-        """Make filename safe for saving"""
-        # Remove dangerous characters
-        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        safe_filename = "".join(c for c in filename if c in safe_chars)
-        
-        # Prevent empty filename
-        if not safe_filename:
-            safe_filename = "received_file"
-        
-        # Add counter if file exists
-        counter = 1
-        original_name = safe_filename
-        while os.path.exists(safe_filename):
-            name, ext = os.path.splitext(original_name)
-            safe_filename = f"{name}_{counter}{ext}"
-            counter += 1
-        
-        return safe_filename
-
-    def accept_file(self, file_id):
-        """Accept a pending file offer"""
-        if file_id not in self.pending_file_offers:
-            print(f"No pending file offer with ID: {file_id}")
-            return
-        
-        offer_info = self.pending_file_offers[file_id]
-        
-        # Check if already processed
-        if offer_info["accepted"] is not None:
-            status = "accepted" if offer_info["accepted"] else "ignored"
-            print(f"File {file_id} already {status}")
-            return
-        
-        # Mark as accepted
-        offer_info["accepted"] = True
-
-        if self.verbose:
-            print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
-
-        # Send ACK using FILEID in the MESSAGE_ID field
-        sender_id = offer_info["sender"]
-        ack = self.message_builder.build_ack(file_id, "ACCEPTED")
-        self.send_message_to_peer(sender_id, ack)
-        
-        if self.verbose:
-            print(f"ACK sent to {sender_id} to trigger file transfer.")
-
-    def ignore_file(self, file_id):
-        """Ignore a pending file offer"""
-        if file_id not in self.pending_file_offers:
-            print(f"No pending file offer with ID: {file_id}")
-            return
-        
-        offer_info = self.pending_file_offers[file_id]
-        
-        # Check if already processed
-        if offer_info["accepted"] is not None:
-            if offer_info["accepted"] is True:
-                print(f"File {file_id} already accepted")
-            else:
-                # Check if it was auto-expired or manually ignored
-                elapsed = time.time() - offer_info["timestamp"]
-                if elapsed > self.FILE_OFFER_EXPIRATION:
-                    print(f"File {file_id} already expired and ignored")
-                else:
-                    print(f"File {file_id} already ignored")
-            return
-
-        # Mark as ignored
-        offer_info["accepted"] = False
-        print(f"Ignored file: {offer_info['filename']} from {offer_info['sender']}")
-
-        if self.verbose:
-            display_manager.log_debug(f"File {file_id} manually ignored")
-
-    def _guess_file_type(self, filename):
-        """Guess MIME type from filename extension"""
-        ext = os.path.splitext(filename)[1].lower()
-        mime_types = {
-            '.txt': 'text/plain',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.pdf': 'application/pdf',
-            '.doc': 'application/msword',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.mp3': 'audio/mpeg',
-            '.mp4': 'video/mp4',
-            '.zip': 'application/zip'
-        }
-        return mime_types.get(ext, 'application/octet-stream')
-    
-    def list_file_transfers(self):
-        """List pending file offers and active transfers (with automatic cleanup)"""
-        # Clean up expired offers first (marks them as ignored)
-        expired_count = self._cleanup_expired_file_offers()
-        
-        if expired_count > 0 and self.verbose:
-            display_manager.log_debug(f"Marked {expired_count} expired file offers as ignored")
-        
-        print("\n--- File Transfers ---")
-        
-        # Filter only offers that are not ignored or expired
-        visible_offers = {
-            fid: offer for fid, offer in self.pending_file_offers.items()
-            if offer["accepted"] is None or offer["accepted"] is True
-        }
-        
-        if visible_offers:
-            print("Pending Offers:")
-            for file_id, offer in visible_offers.items():
-                status_text = ""
-                if offer["accepted"] is True:
-                    status_text = " (ACCEPTED)"
-                else:
-                    # Show time remaining for pending offers
-                    elapsed = time.time() - offer["timestamp"]
-                    remaining = max(0, self.FILE_OFFER_EXPIRATION - elapsed)
-                    status_text = f" (PENDING - {remaining:.0f}s remaining)"
-                
-                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}{status_text}")
-        
-        if self.file_transfers:
-            print("Active Transfers:")
-            for file_id, transfer in self.file_transfers.items():
-                if "received_chunks" in transfer:
-                    print(f"  {file_id}: {transfer['filename']} - {transfer['received_chunks']}/{transfer.get('total_chunks', '?')} chunks")
-                else:
-                    print(f"  {file_id}: {transfer['filename']} - {transfer['status']}")
-        
-        if not visible_offers and not self.file_transfers:
-            print("No active file transfers")
-        
-        print("---------------------\n")
-    
-    def _ensure_files_directory(self):
-        """Create the default files directory if it doesn't exist"""
-        try:
-            if not os.path.exists(self.DEFAULT_FILES_DIR):
-                os.makedirs(self.DEFAULT_FILES_DIR)
-                if self.verbose:
-                    display_manager.log_debug(f"Created default files directory: {self.DEFAULT_FILES_DIR}")
-        except Exception as e:
-            if self.verbose:
-                display_manager.log_warning(f"Could not create files directory: {e}")
-    
-    def _resolve_file_path(self, filepath):
-        """
-        Resolve file path with fallback logic:
-        1. Check if it's just a filename -> look in default directory
-        2. Check if it's a relative/absolute path that exists
-        3. Return None if file not found anywhere
-        """
-        # If it's just a filename (no path separators), check default directory first
-        if os.path.basename(filepath) == filepath:
-            default_path = os.path.join(self.DEFAULT_FILES_DIR, filepath)
-            if os.path.exists(default_path):
-                return default_path
-        
-        # Check if the original path exists (relative or absolute)
-        if os.path.exists(filepath):
-            return filepath
-        
-        # File not found anywhere
-        return None
-    
-    def _get_save_path(self, filename):
-        """Get the path where received files should be saved"""
-        return os.path.join(self.DEFAULT_FILES_DIR, self._make_safe_filename(filename))
-
-    def list_files_directory(self):
-        """List files in the default files directory"""
-        if not os.path.exists(self.DEFAULT_FILES_DIR):
-            print(f"Files directory '{self.DEFAULT_FILES_DIR}' does not exist")
-            return
-        
-        try:
-            files = os.listdir(self.DEFAULT_FILES_DIR)
-            if not files:
-                print(f"No files in '{self.DEFAULT_FILES_DIR}' directory")
-                return
-            
-            print(f"\n--- Files in '{self.DEFAULT_FILES_DIR}' directory ---")
-            for filename in sorted(files):
-                filepath = os.path.join(self.DEFAULT_FILES_DIR, filename)
-                if os.path.isfile(filepath):
-                    size = os.path.getsize(filepath)
-                    print(f"  {filename} ({size} bytes)")
-            print("-------------------------------------\n")
-            
-        except Exception as e:
-            print(f"Error listing files directory: {e}")
-    
-    def _auto_send_file_chunks(self, file_id, chunk_size=1024):
-        """Automatically send file chunks after offer acceptance"""
-        if file_id not in self.file_transfers:
-            if self.verbose:
-                display_manager.log_warning(f"Cannot auto-send chunks for unknown file transfer: {file_id}")
-            return
-        
-        transfer_info = self.file_transfers[file_id]
-        filepath = transfer_info["filepath"]
-        target_user_id = transfer_info["target_user"]
-        
-        if self.verbose:
-            display_manager.log_debug(f"Starting file transfer for {file_id}")
-        
-        # Small delay to ensure the recipient is ready
-        time.sleep(0.5)
-        
-        try:
-            # Check if file exists and is readable
-            if not os.path.exists(filepath):
-                print(f"Error: File not found: {filepath}")
-                return
-            
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
-            
-            if len(file_data) == 0:
-                print(f"Error: File {filepath} is empty!")
-                return
-            
-            # Split into chunks
-            chunks = []
-            for i in range(0, len(file_data), chunk_size):
-                chunk_bytes = file_data[i:i + chunk_size]
-                chunks.append(chunk_bytes)
-            
-            total_chunks = len(chunks)
-            successful_chunks = 0
-            
-            if self.verbose:
-                display_manager.log_debug(f"Sending {total_chunks} chunks for {transfer_info['filename']}")
-            
-            # Send each chunk
-            for i, chunk_bytes in enumerate(chunks):
-                # Encode chunk as base64 for transmission
-                encoded_chunk = base64.b64encode(chunk_bytes).decode('utf-8')
-                
-                msg = self.message_builder.build_file_chunk(
-                    target_user_id, file_id, i, total_chunks, len(chunk_bytes), encoded_chunk
-                )
-                
-                try:
-                    target_ip = self._find_peer_ip(target_user_id)
-                    if target_ip:
-                        self.sock.sendto(msg.encode(), (target_ip, self.PORT))
-                        successful_chunks += 1
-                        self.stats['messages_sent'] += 1
-                        
-                        if self.verbose:
-                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks}")
-                        time.sleep(0.2)  # Delay between chunks
-                    else:
-                        print(f"Error: Cannot find IP for user {target_user_id}")
-                        break
-                except Exception as e:
-                    print(f"Error: Failed to send chunk {i + 1}/{total_chunks}: {e}")
-                    break
-            
-            if successful_chunks == total_chunks:
-                print(f"File transfer of {transfer_info['filename']} completed.")
-                transfer_info["status"] = "sent"
-            else:
-                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully")
-                
-        except Exception as e:
-            print(f"Error in file transfer: {e}")
-    
-    def _cleanup_expired_file_offers(self):
-        """Mark expired file offers as ignored (called from list_file_transfers)"""
-        current_time = time.time()
-        expired_offers = []
-        
-        for file_id, offer_info in self.pending_file_offers.items():
-            if offer_info["accepted"] is None:  # Only expire pending offers
-                if current_time - offer_info["timestamp"] > self.FILE_OFFER_EXPIRATION:
-                    expired_offers.append(file_id)
-        
-        for file_id in expired_offers:
-            self.pending_file_offers[file_id]["accepted"] = False
-            if self.verbose:
-                display_manager.log_debug(f"File offer {file_id} expired after {self.FILE_OFFER_EXPIRATION} seconds - marked as ignored")
-        
-        return len(expired_offers)
-
-    # ====== ACK TIMEOUT & RETRY ======
-    def _ack_timeout_checker(self):
-        """Check for ACK timeouts and handle retries"""
-        while self.running:
-            try:
-                current_time = time.time()
-                expired_messages = []
-                
-                with self.ack_lock:
-                    for msg_id, ack_info in self.pending_acks.items():
-                        if current_time - ack_info['timestamp'] > self.ack_timeout:
-                            expired_messages.append(msg_id)
-                
-                for msg_id in expired_messages:
-                    self._handle_ack_timeout(msg_id)
-                
-                time.sleep(0.5)  # Check every 500ms
-            except Exception as e:
-                if self.running and self.verbose:
-                    display_manager.log_warning(f"Error in ACK timeout checker: {e}")
-    
-    def _handle_ack_timeout(self, message_id):
-        """Handle ACK timeout for a message"""
-        with self.ack_lock:
-            if message_id not in self.pending_acks:
-                return
-            
-            ack_info = self.pending_acks[message_id]
-            ack_info['retries'] += 1
-            
-            if ack_info['retries'] <= self.max_retries:
-                # Retry sending the message
-                try:
-                    self.sock.sendto(ack_info['message'].encode(), (ack_info['target_ip'], self.PORT))
-                    ack_info['timestamp'] = time.time()  # Update timestamp for new retry
-                    
-                    if self.verbose:
-                        display_manager.log_debug(f"Retrying message {message_id} (attempt {ack_info['retries']}/{self.max_retries})")
-                except Exception as e:
-                    if self.verbose:
-                        display_manager.log_warning(f"Failed to retry message {message_id}: {e}")
-            else:
-                # Max retries exceeded
-                if self.verbose:
-                    display_manager.log_warning(f"Max retries exceeded for message {message_id}")
-                
-                # Handle specific failure cases
-                self._handle_message_failure(message_id, ack_info)
-                
-                # Remove from pending ACKs
-                del self.pending_acks[message_id]
-
-    def _handle_message_failure(self, message_id, ack_info):
-        """Handle message failure after max retries"""
-        message = ack_info['message']
-        
-        # Parse message to determine type and handle accordingly
-        try:
-            parsed = self.message_parser.parse_message(message)
-            if parsed and parsed.message_type == MessageType.FILE_OFFER:
-                file_id = parsed.fields.get("FILEID")
-                if file_id and file_id in self.file_transfers:
-                    print(f"Failed to send file offer for {self.file_transfers[file_id]['filename']} - no response from recipient")
-                    # Clean up failed file transfer
-                    del self.file_transfers[file_id]
-            elif parsed and parsed.message_type == MessageType.FILE_CHUNK:
-                file_id = parsed.fields.get("FILEID")
-                chunk_index = parsed.fields.get("CHUNK_INDEX")
-                if file_id and chunk_index is not None:
-                    print(f"Failed to send file chunk {chunk_index} for file {file_id} - transfer may be incomplete")
-        except Exception as e:
-            if self.verbose:
-                display_manager.log_warning(f"Error handling message failure: {e}")
-
-
-    # TODO: Check if correct
     def send_revoke(self, token):
         current_time = time.time()
 
@@ -2344,12 +1874,9 @@ class LSNPPeer:
             print(f"Cannot revoke token {token} — it does not belong to you.")
             return
 
-        # add token to self-revoked list
-        self.revoked_tokens_self.append(token)
         msg_revoke = self.message_builder.build_revoke(token)
-        self.save_sent_messages(msg_revoke)
-
         original_msg_data = self.all_message_sent.get(token)
+
         if original_msg_data:
             original_msg_str = original_msg_data["message"]
             to_field = None
@@ -2365,135 +1892,14 @@ class LSNPPeer:
                 # broadcast to all
                 for peer_id in self.known_peers:
                     self.send_message_to_peer(peer_id, msg_revoke)
+
+            # add token to self-revoked list
+            self.revoked_tokens_self.append(token)
+            self.save_sent_messages(msg_revoke)
         else:
             print(f"No record of sent message with token: {token}")
 
         print(f"Revoked token: {token}")
-    
-    def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
-        """Send a message and track it for ACK if needed"""
-        target_ip = self._find_peer_ip(target_user_id)
-        if not target_ip:
-            print(f"User {target_user_id} not found.")
-            return False
-        
-        try:
-            self.sock.sendto(message.encode(), (target_ip, self.PORT))
-            self.stats['messages_sent'] += 1
-            
-            if needs_ack:
-                # Parse message to get MESSAGE_ID
-                parsed = self.message_parser.parse_message(message)
-                if parsed and parsed.fields.get("MESSAGE_ID"):
-                    msg_id = parsed.fields.get("MESSAGE_ID")
-                    with self.ack_lock:
-                        self.pending_acks[msg_id] = {
-                            'message': message,
-                            'target_ip': target_ip,
-                            'retries': 0,
-                            'timestamp': time.time()
-                        }
-                    
-                    if self.verbose:
-                        display_manager.log_debug(f"Sent message {msg_id} to {target_user_id}, waiting for ACK")
-            
-            return True
-        except Exception as e:
-            print(f"Error sending message to {target_user_id}: {e}")
-            return False
-
-    def send_file_offer(self, target_user_id, filepath, description=""):
-        """Send a file offer to a specific user"""
-        # Resolve the file path
-        resolved_path = self._resolve_file_path(filepath)
-        
-        if not resolved_path:
-            print(f"File not found: {filepath}")
-            if os.path.basename(filepath) == filepath:
-                print(f"  Checked default directory: {os.path.join(self.DEFAULT_FILES_DIR, filepath)}")
-            print(f"  Checked as given path: {filepath}")
-            return
-        
-        filename = os.path.basename(resolved_path)
-        filesize = os.path.getsize(resolved_path)
-        filetype = self._guess_file_type(filename)
-        
-        # Check if user exists
-        target_ip = self._find_peer_ip(target_user_id)
-        if not target_ip:
-            print(f"User {target_user_id} not found.")
-            return
-        
-        msg = self.message_builder.build_file_offer(target_user_id, filename, filesize, filetype, description)
-        
-        # Extract file ID from the message for tracking
-        parsed_msg = self.message_parser.parse_message(msg)
-        file_id = parsed_msg.fields.get("FILEID")
-        
-        # Store file info for automatic sending (use resolved path)
-        self.file_transfers[file_id] = {
-            "filepath": resolved_path,
-            "target_user": target_user_id,
-            "filename": filename,
-            "filesize": filesize,
-            "sent_chunks": 0,
-            "status": "offered"
-        }
-        
-        # Send with ACK tracking - chunks will be sent automatically when ACK is received
-        if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
-            print(f"File offer sent to {target_user_id}: {filename} ({file_id})")
-        else:
-            # Clean up on send failure
-            if file_id in self.file_transfers:
-                del self.file_transfers[file_id]
-
-    def send_file_chunks(self, file_id, chunk_size=1024):
-        """Send file chunks for an accepted file transfer"""
-        if file_id not in self.file_transfers:
-            print(f"File transfer {file_id} not found")
-            return
-        
-        transfer_info = self.file_transfers[file_id]
-        filepath = transfer_info["filepath"]
-        target_user_id = transfer_info["target_user"]
-        
-        try:
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
-            
-            # Split into chunks
-            chunks = []
-            for i in range(0, len(file_data), chunk_size):
-                chunk_data = file_data[i:i + chunk_size]
-                encoded_chunk = base64.b64encode(chunk_data).decode('utf-8')
-                chunks.append(encoded_chunk)
-            
-            total_chunks = len(chunks)
-            successful_chunks = 0
-            
-            # Send each chunk with ACK tracking
-            for i, chunk_data in enumerate(chunks):
-                msg = self.message_builder.build_file_chunk(
-                    target_user_id, file_id, i, total_chunks, len(chunk_data), chunk_data
-                )
-                
-                if self._send_message_with_ack(target_user_id, msg, needs_ack=True):
-                    successful_chunks += 1
-                    if self.verbose:
-                        display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks} for file {file_id}")
-                    time.sleep(0.1)  # Small delay between chunks
-                else:
-                    print(f"Failed to send chunk {i + 1}/{total_chunks} for file {file_id}")
-            
-            if successful_chunks == total_chunks:
-                print(f"Sent {total_chunks} chunks for file {file_id}")
-                transfer_info["status"] = "sent"
-            else:
-                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully for file {file_id}")
-                
-        except Exception as e:
-            print(f"Error sending file chunks: {e}")
 
     # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
     def _complete_file_transfer(self, file_id):
@@ -2923,51 +2329,6 @@ class LSNPPeer:
         except Exception as e:
             if self.verbose:
                 display_manager.log_warning(f"Error handling message failure: {e}")
-
-    # TODO: Check if correct
-    def send_revoke(self, token):
-        current_time = time.time()
-
-        if token in self.revoked_tokens_self:
-            print(f"Token {token} is already revoked by you.")
-            return
-        
-        # check if the token to be revoked is a token from the sender
-        try:
-            user_id = token.split("|")[0] 
-        except (IndexError, ValueError):
-            print(f"Invalid token format: {token}")
-            return
-
-        if user_id != self.user_id:
-            print(f"Cannot revoke token {token} — it does not belong to you.")
-            return
-
-        # add token to self-revoked list
-        self.revoked_tokens_self.append(token)
-        msg_revoke = self.message_builder.build_revoke(token)
-        self.save_sent_messages(msg_revoke)
-
-        original_msg_data = self.all_message_sent.get(token)
-        if original_msg_data:
-            original_msg_str = original_msg_data["message"]
-            to_field = None
-            for line in original_msg_str.splitlines():
-                if line.startswith("TO: "):
-                    to_field = line[4:].strip()
-                    break
-            
-            if to_field:
-                # Send revoke only to that peer
-                self.send_message_to_peer(to_field, msg_revoke)
-            else:
-                # broadcast to all
-                for peer_id in self.known_peers:
-                    self.send_message_to_peer(peer_id, msg_revoke)
-        else:
-            print(f"No record of sent message with token: {token}")
-
-        print(f"Revoked token: {token}")
     
     def _send_message_with_ack(self, target_user_id, message, needs_ack=True):
         """Send a message and track it for ACK if needed"""
@@ -3093,435 +2454,6 @@ class LSNPPeer:
                 
         except Exception as e:
             print(f"Error sending file chunks: {e}")
-
-    # ====== FILE MANAGEMENT (RECEIVING & SENDING) ======
-    def _complete_file_transfer(self, file_id):
-        """Complete file transfer"""
-        if file_id not in self.file_transfers or file_id not in self.file_chunks:
-            if self.verbose:
-                display_manager.log_warning(f"Cannot complete transfer - missing data for {file_id}")
-            return
-            
-        transfer_info = self.file_transfers[file_id]
-        chunks = self.file_chunks[file_id]
-        
-        # Check for missing chunks
-        missing_chunks = []
-        for i in range(transfer_info["total_chunks"]):
-            if i not in chunks:
-                missing_chunks.append(i)
-        
-        if missing_chunks:
-            if self.verbose:
-                display_manager.log_warning(f"Missing chunks for {file_id}: {missing_chunks}")
-            return
-        
-        # Reassemble file in correct order
-        file_data = b""
-        
-        for i in range(transfer_info["total_chunks"]):
-            try:
-                chunk_b64 = chunks[i]
-                chunk_data = base64.b64decode(chunk_b64)
-                file_data += chunk_data
-            except Exception as e:
-                if self.verbose:
-                    display_manager.log_warning(f"Error decoding chunk {i} for {file_id}: {e}")
-                return
-        
-        # Save file
-        filename = transfer_info["filename"]
-        save_path = self._get_save_path(filename)
-        
-        try:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            
-            with open(save_path, 'wb') as f:
-                f.write(file_data)
-            
-            saved_size = os.path.getsize(save_path)
-
-            # Send confirmation
-            sender_id = transfer_info["sender"]
-            msg = self.message_builder.build_file_received(sender_id, file_id, "COMPLETE")
-            self.send_message_to_peer(sender_id, msg)
-            
-            print(f"File transfer of {filename} is complete.")
-            
-        except Exception as e:
-            print(f"Error saving file {filename}: {e}")
-            return
-        
-        # Clean up
-        if file_id in self.file_transfers:
-            del self.file_transfers[file_id]
-        if file_id in self.file_chunks:
-            del self.file_chunks[file_id]
-        if file_id in self.pending_file_offers:
-            del self.pending_file_offers[file_id]
-
-    def _make_safe_filename(self, filename):
-        """Make filename safe for saving"""
-        # Remove dangerous characters
-        safe_chars = "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        safe_filename = "".join(c for c in filename if c in safe_chars)
-        
-        # Prevent empty filename
-        if not safe_filename:
-            safe_filename = "received_file"
-        
-        # Add counter if file exists
-        counter = 1
-        original_name = safe_filename
-        while os.path.exists(safe_filename):
-            name, ext = os.path.splitext(original_name)
-            safe_filename = f"{name}_{counter}{ext}"
-            counter += 1
-        
-        return safe_filename
-
-    def accept_file(self, file_id):
-        """Accept a pending file offer"""
-        if file_id not in self.pending_file_offers:
-            print(f"No pending file offer with ID: {file_id}")
-            return
-        
-        offer_info = self.pending_file_offers[file_id]
-        
-        # Check if already processed
-        if offer_info["accepted"] is not None:
-            status = "accepted" if offer_info["accepted"] else "ignored"
-            print(f"File {file_id} already {status}")
-            return
-        
-        # Mark as accepted
-        offer_info["accepted"] = True
-
-        if self.verbose:
-            print(f"Accepting file: {offer_info['filename']} from {offer_info['sender']}")
-
-        # Send ACK using FILEID in the MESSAGE_ID field
-        sender_id = offer_info["sender"]
-        ack = self.message_builder.build_ack(file_id, "ACCEPTED")
-        self.send_message_to_peer(sender_id, ack)
-        
-        if self.verbose:
-            print(f"ACK sent to {sender_id} to trigger file transfer.")
-
-    def ignore_file(self, file_id):
-        """Ignore a pending file offer"""
-        if file_id not in self.pending_file_offers:
-            print(f"No pending file offer with ID: {file_id}")
-            return
-        
-        offer_info = self.pending_file_offers[file_id]
-        
-        # Check if already processed
-        if offer_info["accepted"] is not None:
-            if offer_info["accepted"] is True:
-                print(f"File {file_id} already accepted")
-            else:
-                # Check if it was auto-expired or manually ignored
-                elapsed = time.time() - offer_info["timestamp"]
-                if elapsed > self.FILE_OFFER_EXPIRATION:
-                    print(f"File {file_id} already expired and ignored")
-                else:
-                    print(f"File {file_id} already ignored")
-            return
-
-        # Mark as ignored
-        offer_info["accepted"] = False
-        print(f"Ignored file: {offer_info['filename']} from {offer_info['sender']}")
-
-        if self.verbose:
-            display_manager.log_debug(f"File {file_id} manually ignored")
-
-    def _guess_file_type(self, filename):
-        """Guess MIME type from filename extension"""
-        ext = os.path.splitext(filename)[1].lower()
-        mime_types = {
-            '.txt': 'text/plain',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.pdf': 'application/pdf',
-            '.doc': 'application/msword',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.mp3': 'audio/mpeg',
-            '.mp4': 'video/mp4',
-            '.zip': 'application/zip'
-        }
-        return mime_types.get(ext, 'application/octet-stream')
-    
-    def list_file_transfers(self):
-        """List pending file offers and active transfers (with automatic cleanup)"""
-        # Clean up expired offers first (marks them as ignored)
-        expired_count = self._cleanup_expired_file_offers()
-        
-        if expired_count > 0 and self.verbose:
-            display_manager.log_debug(f"Marked {expired_count} expired file offers as ignored")
-        
-        print("\n--- File Transfers ---")
-        
-        # Filter only offers that are not ignored or expired
-        visible_offers = {
-            fid: offer for fid, offer in self.pending_file_offers.items()
-            if offer["accepted"] is None or offer["accepted"] is True
-        }
-        
-        if visible_offers:
-            print("Pending Offers:")
-            for file_id, offer in visible_offers.items():
-                status_text = ""
-                if offer["accepted"] is True:
-                    status_text = " (ACCEPTED)"
-                else:
-                    # Show time remaining for pending offers
-                    elapsed = time.time() - offer["timestamp"]
-                    remaining = max(0, self.FILE_OFFER_EXPIRATION - elapsed)
-                    status_text = f" (PENDING - {remaining:.0f}s remaining)"
-                
-                print(f"  {file_id}: {offer['filename']} ({offer['filesize']} bytes) from {offer['sender']}{status_text}")
-        
-        if self.file_transfers:
-            print("Active Transfers:")
-            for file_id, transfer in self.file_transfers.items():
-                if "received_chunks" in transfer:
-                    print(f"  {file_id}: {transfer['filename']} - {transfer['received_chunks']}/{transfer.get('total_chunks', '?')} chunks")
-                else:
-                    print(f"  {file_id}: {transfer['filename']} - {transfer['status']}")
-        
-        if not visible_offers and not self.file_transfers:
-            print("No active file transfers")
-        
-        print("---------------------\n")
-    
-    def _ensure_files_directory(self):
-        """Create the default files directory if it doesn't exist"""
-        try:
-            if not os.path.exists(self.DEFAULT_FILES_DIR):
-                os.makedirs(self.DEFAULT_FILES_DIR)
-                if self.verbose:
-                    display_manager.log_debug(f"Created default files directory: {self.DEFAULT_FILES_DIR}")
-        except Exception as e:
-            if self.verbose:
-                display_manager.log_warning(f"Could not create files directory: {e}")
-    
-    def _resolve_file_path(self, filepath):
-        """
-        Resolve file path with fallback logic:
-        1. Check if it's just a filename -> look in default directory
-        2. Check if it's a relative/absolute path that exists
-        3. Return None if file not found anywhere
-        """
-        # If it's just a filename (no path separators), check default directory first
-        if os.path.basename(filepath) == filepath:
-            default_path = os.path.join(self.DEFAULT_FILES_DIR, filepath)
-            if os.path.exists(default_path):
-                return default_path
-        
-        # Check if the original path exists (relative or absolute)
-        if os.path.exists(filepath):
-            return filepath
-        
-        # File not found anywhere
-        return None
-    
-    def _get_save_path(self, filename):
-        """Get the path where received files should be saved"""
-        return os.path.join(self.DEFAULT_FILES_DIR, self._make_safe_filename(filename))
-
-    def list_files_directory(self):
-        """List files in the default files directory"""
-        if not os.path.exists(self.DEFAULT_FILES_DIR):
-            print(f"Files directory '{self.DEFAULT_FILES_DIR}' does not exist")
-            return
-        
-        try:
-            files = os.listdir(self.DEFAULT_FILES_DIR)
-            if not files:
-                print(f"No files in '{self.DEFAULT_FILES_DIR}' directory")
-                return
-            
-            print(f"\n--- Files in '{self.DEFAULT_FILES_DIR}' directory ---")
-            for filename in sorted(files):
-                filepath = os.path.join(self.DEFAULT_FILES_DIR, filename)
-                if os.path.isfile(filepath):
-                    size = os.path.getsize(filepath)
-                    print(f"  {filename} ({size} bytes)")
-            print("-------------------------------------\n")
-            
-        except Exception as e:
-            print(f"Error listing files directory: {e}")
-    
-    def _auto_send_file_chunks(self, file_id, chunk_size=1024):
-        """Automatically send file chunks after offer acceptance"""
-        if file_id not in self.file_transfers:
-            if self.verbose:
-                display_manager.log_warning(f"Cannot auto-send chunks for unknown file transfer: {file_id}")
-            return
-        
-        transfer_info = self.file_transfers[file_id]
-        filepath = transfer_info["filepath"]
-        target_user_id = transfer_info["target_user"]
-        
-        if self.verbose:
-            display_manager.log_debug(f"Starting file transfer for {file_id}")
-        
-        # Small delay to ensure the recipient is ready
-        time.sleep(0.5)
-        
-        try:
-            # Check if file exists and is readable
-            if not os.path.exists(filepath):
-                print(f"Error: File not found: {filepath}")
-                return
-            
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
-            
-            if len(file_data) == 0:
-                print(f"Error: File {filepath} is empty!")
-                return
-            
-            # Split into chunks
-            chunks = []
-            for i in range(0, len(file_data), chunk_size):
-                chunk_bytes = file_data[i:i + chunk_size]
-                chunks.append(chunk_bytes)
-            
-            total_chunks = len(chunks)
-            successful_chunks = 0
-            
-            if self.verbose:
-                display_manager.log_debug(f"Sending {total_chunks} chunks for {transfer_info['filename']}")
-            
-            # Send each chunk
-            for i, chunk_bytes in enumerate(chunks):
-                # Encode chunk as base64 for transmission
-                encoded_chunk = base64.b64encode(chunk_bytes).decode('utf-8')
-                
-                msg = self.message_builder.build_file_chunk(
-                    target_user_id, file_id, i, total_chunks, len(chunk_bytes), encoded_chunk
-                )
-                
-                try:
-                    target_ip = self._find_peer_ip(target_user_id)
-                    if target_ip:
-                        self.sock.sendto(msg.encode(), (target_ip, self.PORT))
-                        successful_chunks += 1
-                        self.stats['messages_sent'] += 1
-                        
-                        if self.verbose:
-                            display_manager.log_debug(f"Sent chunk {i + 1}/{total_chunks}")
-                        time.sleep(0.2)  # Delay between chunks
-                    else:
-                        print(f"Error: Cannot find IP for user {target_user_id}")
-                        break
-                except Exception as e:
-                    print(f"Error: Failed to send chunk {i + 1}/{total_chunks}: {e}")
-                    break
-            
-            if successful_chunks == total_chunks:
-                print(f"File transfer of {transfer_info['filename']} completed.")
-                transfer_info["status"] = "sent"
-            else:
-                print(f"Warning: Only {successful_chunks}/{total_chunks} chunks sent successfully")
-                
-        except Exception as e:
-            print(f"Error in file transfer: {e}")
-    
-    def _cleanup_expired_file_offers(self):
-        """Mark expired file offers as ignored (called from list_file_transfers)"""
-        current_time = time.time()
-        expired_offers = []
-        
-        for file_id, offer_info in self.pending_file_offers.items():
-            if offer_info["accepted"] is None:  # Only expire pending offers
-                if current_time - offer_info["timestamp"] > self.FILE_OFFER_EXPIRATION:
-                    expired_offers.append(file_id)
-        
-        for file_id in expired_offers:
-            self.pending_file_offers[file_id]["accepted"] = False
-            if self.verbose:
-                display_manager.log_debug(f"File offer {file_id} expired after {self.FILE_OFFER_EXPIRATION} seconds - marked as ignored")
-        
-        return len(expired_offers)
-
-    # ====== ACK TIMEOUT & RETRY ======
-    def _ack_timeout_checker(self):
-        """Check for ACK timeouts and handle retries"""
-        while self.running:
-            try:
-                current_time = time.time()
-                expired_messages = []
-                
-                with self.ack_lock:
-                    for msg_id, ack_info in self.pending_acks.items():
-                        if current_time - ack_info['timestamp'] > self.ack_timeout:
-                            expired_messages.append(msg_id)
-                
-                for msg_id in expired_messages:
-                    self._handle_ack_timeout(msg_id)
-                
-                time.sleep(0.5)  # Check every 500ms
-            except Exception as e:
-                if self.running and self.verbose:
-                    display_manager.log_warning(f"Error in ACK timeout checker: {e}")
-    
-    def _handle_ack_timeout(self, message_id):
-        """Handle ACK timeout for a message"""
-        with self.ack_lock:
-            if message_id not in self.pending_acks:
-                return
-            
-            ack_info = self.pending_acks[message_id]
-            ack_info['retries'] += 1
-            
-            if ack_info['retries'] <= self.max_retries:
-                # Retry sending the message
-                try:
-                    self.sock.sendto(ack_info['message'].encode(), (ack_info['target_ip'], self.PORT))
-                    ack_info['timestamp'] = time.time()  # Update timestamp for new retry
-                    
-                    if self.verbose:
-                        display_manager.log_debug(f"Retrying message {message_id} (attempt {ack_info['retries']}/{self.max_retries})")
-                except Exception as e:
-                    if self.verbose:
-                        display_manager.log_warning(f"Failed to retry message {message_id}: {e}")
-            else:
-                # Max retries exceeded
-                if self.verbose:
-                    display_manager.log_warning(f"Max retries exceeded for message {message_id}")
-                
-                # Handle specific failure cases
-                self._handle_message_failure(message_id, ack_info)
-                
-                # Remove from pending ACKs
-                del self.pending_acks[message_id]
-
-    def _handle_message_failure(self, message_id, ack_info):
-        """Handle message failure after max retries"""
-        message = ack_info['message']
-        
-        # Parse message to determine type and handle accordingly
-        try:
-            parsed = self.message_parser.parse_message(message)
-            if parsed and parsed.message_type == MessageType.FILE_OFFER:
-                file_id = parsed.fields.get("FILEID")
-                if file_id and file_id in self.file_transfers:
-                    print(f"Failed to send file offer for {self.file_transfers[file_id]['filename']} - no response from recipient")
-                    # Clean up failed file transfer
-                    del self.file_transfers[file_id]
-            elif parsed and parsed.message_type == MessageType.FILE_CHUNK:
-                file_id = parsed.fields.get("FILEID")
-                chunk_index = parsed.fields.get("CHUNK_INDEX")
-                if file_id and chunk_index is not None:
-                    print(f"Failed to send file chunk {chunk_index} for file {file_id} - transfer may be incomplete")
-        except Exception as e:
-            if self.verbose:
-                display_manager.log_warning(f"Error handling message failure: {e}")
 
     # ====== COMMAND HANDLING ======
     def handle_command(self, cmd):
@@ -3684,7 +2616,7 @@ class LSNPPeer:
                 self.send_tictactoe_move(game_id, symbol, position)
             else:
                 print("Usage: tictactoe_move <game_id> <symbol> <position>")
-        # TODO: Check if working/correct
+
         elif cmd == "tictactoe_result":
             if len(parts) > 2:
                 game_id = parts[1]
@@ -3692,10 +2624,10 @@ class LSNPPeer:
                 self.send_tictactoe_result(game_id, symbol)
             else:
                 print("Usage: tictactoe_result <game_id> <symbol>")
-        # TODO: Check if working/correct
+
         elif cmd == "group":
             display_manager.print_groups(self.groups)
-        # TODO: Check if working/correct
+
         elif cmd == "revoke":
             if len(parts) > 1:
                 token = parts[1]
