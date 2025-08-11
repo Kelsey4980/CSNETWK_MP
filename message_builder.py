@@ -61,7 +61,7 @@ class MessageBuilder:
             ttl_seconds = DEFAULT_TTL
         
         message_id = self.generate_message_id()
-        token = self.generate_token("chat", ttl_seconds)
+        token = self.generate_token("broadcast", ttl_seconds)
         
         message_parts = [
             f"TYPE: POST",
