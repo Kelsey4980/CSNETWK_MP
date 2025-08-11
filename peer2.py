@@ -515,13 +515,16 @@ class LSNPPeer:
                 display_manager.log_debug(f"'{group_name}' ({group_id}) updated its members")
 
         elif self.user_id in members_to_add:
-                self.groups[group_key] = {
-                    "id": group_id,
-                    "name": "",
-                    "members": [],
-                    "creator": group_creator
-                }
-                # self.handle_add_to_group(group_key, group_creator)
+            self.groups[group_key] = {
+                "id": group_id,
+                "name": "",
+                "members": [],
+                "creator": group_creator
+            }
+            
+            if self.verbose:
+                display_manager.log_warning(f"You have been added to {group_id} by {group_creator} but group info is incomplete.")
+                display_manager.log_warning(f"No information received on GROUP NAME and MEMBERS.")
 
         else:
             if self.verbose:
