@@ -62,7 +62,9 @@
 
 ### Milestone #3
    1. **Profile Picture and Likes**
-      - fill
+      - Avatars are stored in base64 format and are stored as data + type fields in Profile.
+      - Avatars appear in DMs and Posts
+      - Likes are stored with Posts, are referred to by using a timestamp, and can be removed through Unlike.
    2. **File Transfer**
       - fill
    3. **Token Handling and Scope Validation**
