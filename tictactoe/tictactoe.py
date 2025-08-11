@@ -41,7 +41,7 @@ class TicTacToeGame:
         print('\n')
 
         previous_player = self.p1 if self.current_player == self.p2 else self.p2
-        print(f'\nTurn {self.turn} - {previous_player.name} ({previous_player.symbol})')
+        print(f'Turn {self.turn} - {previous_player.name} ({previous_player.symbol})\n')
 
         print(top_border)
 
@@ -53,6 +53,13 @@ class TicTacToeGame:
                 print(mid_border)
 
         print(bot_border)
+
+        if self.end:
+            if self.winner:
+                print(f"\n{self.winner.name} wins!\n")
+                print(f"Use command 'tictactoe_result' for a more detailed summary")
+            else:
+                print("\nIt's a draw!\n")
 
 
     '''
@@ -90,6 +97,7 @@ class TicTacToeGame:
     '''
     def check_draw(self):
         if not any(' ' in row for row in self.board) and not self.check_win()[0]:
+            self.winner = None
             self.end = True
 
         return self.end
@@ -111,21 +119,25 @@ class TicTacToeGame:
             # Horizontal 
             if self.board[i][0] == self.board[i][1] == self.board[i][2] != ' ':
                 winning_line = (i * 3 + 0, i * 3 + 1, i * 3 + 2)
+                self.winner = self.p1 if self.board[i][0] == self.p1.symbol else self.p2
                 return True, winning_line, self.board[i][0]
             
             # Vertical
             if self.board[0][i] == self.board[1][i] == self.board[2][i] != ' ':
                 winning_line = (i, 3 + i, 6 + i)
+                self.winner = self.p1 if self.board[0][i] == self.p1.symbol else self.p2
                 return True, winning_line, self.board[0][i]
             
         # Diagonal Left
         if self.board[0][0] == self.board[1][1] == self.board[2][2] != ' ':
             winning_line = (0, 4, 8)
+            self.winner = self.p1 if self.board[0][0] == self.p1.symbol else self.p2
             return True, winning_line, self.board[0][0]
         
         # Diagonal Right
         if self.board[0][2] == self.board[1][1] == self.board[2][0] != ' ':
             winning_line = (2, 4, 6)
+            self.winner = self.p1 if self.board[0][2] == self.p1.symbol else self.p2
             return True, winning_line, self.board[0][2]
         
         return False, None, None

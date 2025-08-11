@@ -81,6 +81,7 @@ class LSNPPeer:
         """Start the peer"""
         self.running = True
         threading.Thread(target=self._listen_loop, daemon=True).start()
+        threading.Thread(target=self._game_timeout_loop, daemon=True).start()
         self.broadcast_profile()
 
     def stop(self):
@@ -441,7 +442,7 @@ class LSNPPeer:
             return
 
         game = TicTacToeGame(game_id, self.user_id, symbol, sender_id)
-        self.pending_games[game_id] = game
+        self.pending_games[game_id] = {"game": game, "last_activity": time.time()}
 
         # Update peer info
         self._update_peer_info(sender_id, sender_username, sender_ip)
@@ -463,11 +464,11 @@ class LSNPPeer:
         if not game_id in self.active_games:
             self.active_games[game_id] = self.pending_games.pop(game_id, None)
         
-        game = self.active_games.get(game_id)
+        game = self.active_games.get(game_id, None)
 
         # Check if the game is already over
         if game.check_draw() or game.check_win()[0]:
-            print(f"Game with {sender_username} is already over. Use command 'tictactoe_result' to view the result.")
+            print(f"Game with {sender_username} is already over. Use command 'tictactoe_result' for a more detailed summary of the results")
             return
                 
         # Update board and turn
@@ -479,7 +480,11 @@ class LSNPPeer:
         if self.verbose:
             print(f"{sender_username} played: {symbol} at position {position}")
         else:
+            print(f"{sender_username} played: {symbol} at position {position}")
             game.print_board()
+
+        # Update last active time for the game
+        self.active_games[game_id]["last_activity"] = time.time()
 
         # Update peer info
         self._update_peer_info(sender_id, sender_username, sender_ip)
@@ -870,6 +875,21 @@ class LSNPPeer:
         else:
             print("Group not found.")
     
+    def _cleanup_inactive_games(self, timeout_seconds=120):
+        now = time.time()
+        to_remove = []
+        for game_id, data in self.active_games.items():
+            if now - data["last_activity"] > timeout_seconds:
+                to_remove.append(game_id)
+        for game_id in to_remove:
+            print(f"Game {game_id} timed out due to inactivity.")
+            self.active_games[game_id].pop(game_id, None)
+
+    def _game_timeout_loop(self, timeout_seconds=120, interval=30):
+        while self.running:
+            self._cleanup_inactive_games(timeout_seconds)
+            time.sleep(interval)
+
     def send_tictactoe_invite(self, target_user_id, symbol):
         """Send a TICTACTOE_INVITE message to a specific user"""
 
@@ -878,24 +898,17 @@ class LSNPPeer:
         if not symbol.strip():
             print("TICTACTOE_INVITE symbol cannot be empty.")
             return
-        
-        # Silently reject if already in an active game
-        '''
-        if target_user_id in self.active_games:
-            print(f"Already sent a game invite to {target_username}. Cannot send another invite.")
-            return
-        '''
 
         # Silently reject if invite already sent
         for key, value in self.pending_games:
             if value.get_p1().id == target_user_id or value.get_p2().id == target_user_id:
-                print(f"Already sent a game invite to {target_username}. Cannot send another invite.")
+                print(f"\nAlready sent a game invite to {target_username}. Cannot send another invite.\n")
                 return
             
         # Silently reject if already in an active game
         for key, value in self.active_games:
             if value.get_p1().id == target_user_id or value.get_p2().id == target_user_id:
-                print(f"Already in a game with {target_username}. Cannot send another invite.")
+                print(f"\nAlready in a game with {target_username}. Cannot send another invite.\n")
                 return
         
         # Quick check if user_id is a known peer
@@ -909,12 +922,12 @@ class LSNPPeer:
             game_id = fields.get("GAME_ID")
             symbol = "X" if fields.get("SYMBOL") == "O" else "O"
             game = TicTacToeGame(game_id, target_user_id, symbol, self.user_id)
-            self.active_games[game_id] = game
+            self.pending_games[game_id] = {"game": game, "last_activity": time.time()}
 
             self.send_message_to_peer(target_user_id, msg)
-            print(f"Game Invite sent to {target_username}. Game ID: {game_id}")
+            print(f"Game Invite sent to {target_username}. Game ID: {game_id}\n")
         else:
-            print(f"User {target_user_id} not found.")
+            print(f"User {target_user_id} not found.\n")
     
     def send_tictactoe_move(self, game_id, symbol, position):
         """Send a TICTACOE_MOVE message to a specific user"""
@@ -929,46 +942,51 @@ class LSNPPeer:
         
         # Check if game_id exists in pending or active games
         if not game_id in self.pending_games and not game_id in self.active_games:
-            print(f"No game found with Game ID \"{game_id}\". Please invite them first.")
+            print(f"\nNo game found with Game ID \"{game_id}\"\n")
             return
         
         # Get or create the game instance for the target user
         if not game_id in self.active_games:
             self.active_games[game_id] = self.pending_games.pop(game_id, None)
 
-        game = self.active_games.get(game_id)
+        game = self.active_games.get(game_id, None)
 
         if not game:
-            print(f"No active game found with Game ID \"{game_id}\". Please invite them first.")
+            print(f"\nNo active game found with Game ID \"{game_id}\"\n")
             return
         
         # Get opponent name and id
         target_username = game.get_p2().name if game.get_p1().name == self.display_name else game.get_p1().name
         target_user_id = game.get_p1().id if game.get_p2().id == self.user_id else game.get_p2().id
 
+        if self._find_peer_ip(target_user_id) is None:
+            print(f"\nOpponent has left and forfeited\n")
+            game.end = True
+            return
+
         # Check if valid game id
         if game.get_game_id() != game_id:
-            print(f"Game ID mismatch: {game.get_game_id()} != {game_id}. Cannot send move.")
+            print(f"\nGame ID mismatch: {game.get_game_id()} != {game_id}. Cannot send move.\n")
             return
 
         # Check if the game is already over
         if game.check_draw() or game.check_win()[0]:
-            print(f"Game with {target_username} is already over. Use command 'tictactoe_result' to view the result.")
+            print(f"\nGame with {target_username} is already over. Use command 'tictactoe_result' for a more detailed summary of the results\n")
+            return
+        
+        # Check if it is the user's turn
+        if not game.get_current_player().name == self.display_name:
+            print(f"\nIt's not your turn! Current turn: {game.get_current_player().name}\n")
             return
         
         # Validate position
         if not position.isdigit() or not (0 <= int(position) <= 8):
-            print(f"Invalid position: {position}. Please enter a number between 0 and 8.")
+            print(f"\nInvalid position: {position}. Please enter a number between 0 and 8.\n")
             return
         
         # Validate symbol
         if not symbol == game.get_current_player().symbol:
-            print(f"Invalid symbol: {symbol}. Please enter the correct symbol.")
-            return
-                
-        # Check if it is the user's turn
-        if not game.get_current_player().name == self.display_name:
-            print(f"It's not your turn! Current turn: {game.get_current_player().name}")
+            print(f"\nInvalid symbol: {symbol}. Please enter the correct symbol.\n")
             return
         
         # Update board and turn
@@ -978,7 +996,9 @@ class LSNPPeer:
             return
         
         turn = game.get_turn_number()
-        
+
+        self.active_games[game_id]["last_activity"] = time.time()
+
         # Quick check if user_id is a known peer
         target_ip = self._find_peer_ip(target_user_id)
         
@@ -991,22 +1011,22 @@ class LSNPPeer:
             print(f"User {target_user_id} not found.")
     
     def send_tictactoe_result(self, game_id, symbol):
-        """Send a TICTACOE_RESULT message to a specific user"""
+        """Send a TICTACTOE_RESULT message to a specific user"""
 
         if not symbol.strip():
             print("TICTACTOE_MOVE symbol cannot be empty.")
             return
         
         # Get or create the game instance for the target user
-        game = self.active_games.get(game_id)
+        game = self.active_games.get(game_id, None)
 
         if not game:
-            print(f"No active game found with {target_username}.")
+            print(f"\nNo active game found with Game ID \"{game_id}\"\n")
             return
         
         # Check if valid game id
         if game.get_game_id() != game_id:
-            print(f"Game ID mismatch: {game.get_game_id()} != {game_id}.")
+            print(f"\nGame ID mismatch: {game.get_game_id()} != {game_id}.\n")
             return
         
         # Get opponent name and id
@@ -1015,17 +1035,18 @@ class LSNPPeer:
 
         # Check if the game is still ongoing
         if not (game.check_draw() or game.check_win()[0]):
-            print(f"Game with {target_username} is still ongoing.")
+            print(f"\nGame with {target_username} is still ongoing.\n")
             return
         
         # Check for draws
         draw = game.check_draw()
+        win = game.check_win()[0]
 
         if draw:
             result = "DRAW"
             winning_line = "No winning line"
             self.active_games.pop(game_id, None) # Remove game from active games
-        else:
+        elif win:
             win_info = game.check_win()
 
             if not win_info[0]:
@@ -1036,6 +1057,10 @@ class LSNPPeer:
                 result = "WIN" if win_info[2] == symbol else "LOSE"
                 winning_line = win_info[1]
                 self.active_games.pop(game_id, None)  # Remove game from active games
+        elif game.end:
+            result = "FORFEIT"
+            winning_line = "No winning line"
+            self.active_games.pop(game_id, None)
         
         # Quick check if user_id is a known peer
         target_ip = self._find_peer_ip(target_user_id)
